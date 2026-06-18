@@ -7,7 +7,6 @@ import (
 	"github.com/gary/dune/internal/database/model"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // upsertClientRecords find-or-creates the client_records row for every client
@@ -220,12 +219,20 @@ func (s *ClientService) AttachClientsToInbound(tx *gorm.DB, inboundId int, clien
 	if len(links) == 0 {
 		return nil
 	}
-	// A re-add (retry, or a row left by an earlier op) must refresh the stored
-	// flow override rather than fail on the composite PK.
-	return tx.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "client_id"}, {Name: "inbound_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"flow_override"}),
-	}).CreateInBatches(links, 200).Error
+	// Clear any pre-existing rows for exactly these clients on this inbound, then
+	// insert fresh. This stays incremental (O(attached clients), never the whole
+	// inbound) and — unlike ON CONFLICT — does not depend on a (client_id,
+	// inbound_id) unique constraint being present, which older migrated Postgres
+	// schemas may lack.
+	clientIDs := make([]int, 0, len(links))
+	for i := range links {
+		clientIDs = append(clientIDs, links[i].ClientId)
+	}
+	if err := tx.Where("inbound_id = ? AND client_id IN ?", inboundId, clientIDs).
+		Delete(&model.ClientInbound{}).Error; err != nil {
+		return err
+	}
+	return tx.CreateInBatches(links, 200).Error
 }
 
 // DetachClientFromInbound incrementally removes a single client's link from
