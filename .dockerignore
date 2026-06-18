@@ -1,4 +1,5 @@
 .git
+.github
 **/node_modules
 internal/web/dist
 build
@@ -8,3 +9,9 @@ pgdata
 dune/
 *.db
 *.dump
+deploy
+windows_files
+*.md
+README*
+.gitignore
+docker-compose.yml

@@ -4,10 +4,22 @@
 FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 COPY frontend/ ./
 COPY internal/web/translation /src/internal/web/translation
 RUN npm run build
+
+# ========================================================
+# Stage: External binaries (Xray, mtg, geodata)
+# Cached independently of application source changes.
+# ========================================================
+FROM alpine AS binaries
+ARG TARGETARCH
+RUN apk add --no-cache curl unzip
+WORKDIR /app
+COPY DockerInit.sh .
+RUN chmod +x DockerInit.sh && ./DockerInit.sh "$TARGETARCH"
 
 # ========================================================
 # Stage: Builder
@@ -16,19 +28,21 @@ FROM golang:1.26-alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
 
-RUN apk --no-cache --update add \
-  build-base \
-  gcc \
-  curl \
-  unzip
+RUN apk add --no-cache build-base gcc
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY . .
 COPY --from=frontend /src/internal/web/dist ./internal/web/dist
+COPY --from=binaries /app/build/bin ./build/bin
 
 ENV CGO_ENABLED=1
 ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
-RUN go build -ldflags "-w -s" -o build/dune main.go
-RUN ./DockerInit.sh "$TARGETARCH"
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -ldflags "-w -s" -o build/dune main.go
 
 # ========================================================
 # Stage: Final Image of dune

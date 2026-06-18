@@ -53,10 +53,9 @@ func startPprofServer() {
 	}()
 }
 
-// runWebServer initializes and starts the web server for the dune panel.
-func runWebServer() {
-	log.Printf("Starting %v %v", config.GetName(), config.GetVersion())
-
+// initLoggerFromConfig configures the application logger from DUNE_LOG_LEVEL.
+// CLI subcommands (migrate, setting, …) call this before any code that may log.
+func initLoggerFromConfig() error {
 	switch config.GetLogLevel() {
 	case config.Debug:
 		logger.InitLogger(logging.DEBUG)
@@ -69,7 +68,17 @@ func runWebServer() {
 	case config.Error:
 		logger.InitLogger(logging.ERROR)
 	default:
-		log.Fatalf("Unknown log level: %v", config.GetLogLevel())
+		return fmt.Errorf("unknown log level: %v", config.GetLogLevel())
+	}
+	return nil
+}
+
+// runWebServer initializes and starts the web server for the dune panel.
+func runWebServer() {
+	log.Printf("Starting %v %v", config.GetName(), config.GetVersion())
+
+	if err := initLoggerFromConfig(); err != nil {
+		log.Fatal(err)
 	}
 
 	godotenv.Load()
@@ -467,6 +476,10 @@ func GetApiToken(getApiToken bool) {
 
 // migrateDb performs database migration operations for the dune panel.
 func migrateDb() {
+	if err := initLoggerFromConfig(); err != nil {
+		log.Fatal(err)
+	}
+
 	inboundService := service.InboundService{}
 
 	err := database.InitDB(config.GetDBPath())
