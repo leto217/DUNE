@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -594,79 +593,25 @@ func (s *InboundService) enableClientsByEmails(tx *gorm.DB, emails []string, now
 		client   map[string]any
 	}
 
-	inboundIDs := make([]int, 0)
-	seenInbound := make(map[int]struct{})
 	for _, t := range targets {
-		if _, ok := seenInbound[t.InboundID]; !ok {
-			seenInbound[t.InboundID] = struct{}{}
-			inboundIDs = append(inboundIDs, t.InboundID)
-		}
-	}
-
-	var inbounds []*model.Inbound
-	for _, batch := range chunkInts(inboundIDs, sqliteMaxVars) {
-		var page []*model.Inbound
-		if err := tx.Where("id IN ?", batch).Find(&page).Error; err != nil {
-			return false, nil, err
-		}
-		inbounds = append(inbounds, page...)
-	}
-
-	emailSet := make(map[string]struct{}, len(enabledEmails))
-	for _, e := range enabledEmails {
-		emailSet[e] = struct{}{}
-	}
-
-	for _, ib := range inbounds {
-		settings := map[string]any{}
-		if err := json.Unmarshal([]byte(ib.Settings), &settings); err != nil {
+		if t.NodeID != nil {
 			continue
 		}
-		clients, ok := settings["clients"].([]any)
-		if !ok {
+		rec, recErr := s.clientService.GetRecordByEmail(tx, t.Email)
+		if recErr != nil || rec == nil {
 			continue
 		}
-		mutated := false
-		for i := range clients {
-			entry, ok := clients[i].(map[string]any)
-			if !ok {
-				continue
-			}
-			email, _ := entry["email"].(string)
-			if _, hit := emailSet[email]; !hit {
-				continue
-			}
-			if cur, _ := entry["enable"].(bool); cur {
-				continue
-			}
-			entry["enable"] = true
-			entry["updated_at"] = nowMs
-			clients[i] = entry
-			mutated = true
-			if ib.NodeID == nil {
-				clientsToAdd = append(clientsToAdd, struct {
-					protocol string
-					tag      string
-					client   map[string]any
-				}{protocol: string(ib.Protocol), tag: ib.Tag, client: entry})
-			}
-		}
-		if !mutated {
-			continue
-		}
-		settings["clients"] = clients
-		bs, mErr := json.MarshalIndent(settings, "", "  ")
-		if mErr != nil {
-			continue
-		}
-		ib.Settings = string(bs)
-		if err := tx.Model(&model.Inbound{}).Where("id = ?", ib.Id).Update("settings", ib.Settings).Error; err != nil {
-			return false, nil, err
-		}
-		cs, gcErr := s.GetClients(ib)
-		if gcErr == nil {
-			_ = s.clientService.SyncInbound(tx, ib.Id, cs)
-		}
+		client := rec.ToClient()
+		client.Enable = true
+		clientsToAdd = append(clientsToAdd, struct {
+			protocol string
+			tag      string
+			client   map[string]any
+		}{
+			protocol: t.Protocol,
+			tag:      t.Tag,
+			client:   buildXrayClientEntry(model.Protocol(t.Protocol), *client),
+		})
 	}
 
 	if err := tx.Model(xray.ClientTraffic{}).

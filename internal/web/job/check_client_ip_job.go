@@ -916,8 +916,8 @@ func (j *CheckClientIpJob) getClientIpLookup(clientEmail string) (*clientIpLooku
 	}, nil
 }
 
-// inboundClientsCached parses inbound.Settings at most once per inbound per
-// scan. Only the rare ban/disconnect path needs the full client list.
+// inboundClientsCached loads clients for an inbound at most once per scan.
+// Only the rare ban/disconnect path needs the full client list.
 func (j *CheckClientIpJob) inboundClientsCached(inbound *model.Inbound, cache map[int][]model.Client) ([]model.Client, error) {
 	if inbound == nil {
 		return nil, errors.New("missing inbound")
@@ -925,14 +925,11 @@ func (j *CheckClientIpJob) inboundClientsCached(inbound *model.Inbound, cache ma
 	if cached, ok := cache[inbound.Id]; ok {
 		return cached, nil
 	}
-	if inbound.Settings == "" {
-		return nil, errors.New("empty inbound settings")
-	}
-	settings := map[string][]model.Client{}
-	if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+	inboundSvc := &service.InboundService{}
+	clients, err := inboundSvc.GetClients(inbound)
+	if err != nil {
 		return nil, err
 	}
-	clients := settings["clients"]
 	cache[inbound.Id] = clients
 	return clients, nil
 }

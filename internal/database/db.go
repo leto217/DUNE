@@ -415,6 +415,12 @@ func runSeeders(isUsersEmpty bool) error {
 		}
 	}
 
+	if !slices.Contains(seedersHistory, "SlimInboundSettingsClients") {
+		if err := slimInboundSettingsClientsSeed(); err != nil {
+			return err
+		}
+	}
+
 	if !slices.Contains(seedersHistory, "InboundClientsArrayFix") {
 		if err := normalizeInboundClientsArray(); err != nil {
 			return err
@@ -818,6 +824,50 @@ func seedClientsFromInboundJSON() error {
 
 		return tx.Create(&model.HistoryOfSeeders{SeederName: "ClientsTable"}).Error
 	})
+}
+
+// slimInboundSettingsClientsSeed empties settings.clients[] now that the
+// clients / client_inbounds tables are authoritative. One-time; idempotent.
+func slimInboundSettingsClientsSeed() error {
+	var inbounds []model.Inbound
+	if err := db.Select("id", "settings").Find(&inbounds).Error; err != nil {
+		return err
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, inbound := range inbounds {
+			stripped, changed, err := compactInboundSettingsWithoutClients(inbound.Settings)
+			if err != nil {
+				log.Printf("SlimInboundSettingsClients: skip inbound %d: %v", inbound.Id, err)
+				continue
+			}
+			if !changed {
+				continue
+			}
+			if err := tx.Model(&model.Inbound{}).Where("id = ?", inbound.Id).Update("settings", stripped).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(&model.HistoryOfSeeders{SeederName: "SlimInboundSettingsClients"}).Error
+	})
+}
+
+func compactInboundSettingsWithoutClients(settings string) (string, bool, error) {
+	if settings == "" {
+		return `{"clients":[]}`, true, nil
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(settings), &top); err != nil {
+		return settings, false, err
+	}
+	if raw, ok := top["clients"]; ok && string(raw) == "[]" {
+		return settings, false, nil
+	}
+	top["clients"] = json.RawMessage("[]")
+	out, err := json.Marshal(top)
+	if err != nil {
+		return settings, false, err
+	}
+	return string(out), true, nil
 }
 
 // seedApiTokens copies the legacy `apiToken` setting into the new

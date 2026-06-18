@@ -172,7 +172,7 @@ func (s *ClientService) SyncInbound(tx *gorm.DB, inboundId int, clients []model.
 			return err
 		}
 	}
-	return nil
+	return stripInboundSettingsClients(tx, inboundId)
 }
 
 // AttachClientsToInbound incrementally attaches the given clients to inboundId
@@ -232,7 +232,10 @@ func (s *ClientService) AttachClientsToInbound(tx *gorm.DB, inboundId int, clien
 		Delete(&model.ClientInbound{}).Error; err != nil {
 		return err
 	}
-	return tx.CreateInBatches(links, 200).Error
+	if err := tx.CreateInBatches(links, 200).Error; err != nil {
+		return err
+	}
+	return stripInboundSettingsClients(tx, inboundId)
 }
 
 // DetachClientFromInbound incrementally removes a single client's link from
@@ -248,8 +251,11 @@ func (s *ClientService) DetachClientFromInbound(tx *gorm.DB, inboundId int, emai
 		return nil
 	}
 	clientIDs := tx.Model(&model.ClientRecord{}).Select("id").Where("email = ?", email)
-	return tx.Where("inbound_id = ? AND client_id IN (?)", inboundId, clientIDs).
-		Delete(&model.ClientInbound{}).Error
+	if err := tx.Where("inbound_id = ? AND client_id IN (?)", inboundId, clientIDs).
+		Delete(&model.ClientInbound{}).Error; err != nil {
+		return err
+	}
+	return stripInboundSettingsClients(tx, inboundId)
 }
 
 func (s *ClientService) DetachInbound(tx *gorm.DB, inboundId int) error {

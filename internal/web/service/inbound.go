@@ -226,6 +226,11 @@ func slimSettingsClients(settings string) string {
 	if settings == "" {
 		return settings
 	}
+	// Fast path: stored settings already have an empty clients[] (normal after
+	// ClientsTable + SlimInboundSettingsClients migration).
+	if strings.Contains(settings, `"clients":[]`) || strings.Contains(settings, `"clients": []`) {
+		return settings
+	}
 	var raw map[string]any
 	if err := json.Unmarshal([]byte(settings), &raw); err != nil {
 		return settings
@@ -399,17 +404,22 @@ func (s *InboundService) GetInboundsByTrafficReset(period string) ([]*model.Inbo
 }
 
 func (s *InboundService) GetClients(inbound *model.Inbound) ([]model.Client, error) {
-	settings := map[string][]model.Client{}
-	json.Unmarshal([]byte(inbound.Settings), &settings)
-	if settings == nil {
-		return nil, fmt.Errorf("setting is null")
+	if inbound == nil {
+		return nil, fmt.Errorf("inbound is nil")
 	}
-
-	clients := settings["clients"]
-	if clients == nil {
-		return nil, nil
+	// Panel-owned rows: clients / client_inbounds are authoritative. Parsing
+	// settings.clients was the dominant json CPU cost (subs, list/slim, stats
+	// enrichment) because the blob still carried every credential.
+	if inbound.Id > 0 {
+		clients, err := s.clientService.ListForInbound(nil, inbound.Id)
+		if err != nil {
+			return nil, err
+		}
+		if len(clients) > 0 || inbound.Settings == "" {
+			return clients, nil
+		}
 	}
-	return clients, nil
+	return parseClientsFromSettings(inbound.Settings)
 }
 
 func (s *InboundService) GetAllEmails() ([]string, error) {

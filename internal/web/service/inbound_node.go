@@ -702,7 +702,7 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			perInboundOld = append(perInboundOld, oldSet{inboundID: c.Id, emails: oldEmails})
 		}
 
-		clients, gcErr := s.GetClients(snapIb)
+		clients, gcErr := parseClientsFromSettings(snapIb.Settings)
 		if gcErr != nil {
 			logger.Warningf("setRemoteTraffic: parse clients for tag %q failed: %v", snapIb.Tag, gcErr)
 			continue

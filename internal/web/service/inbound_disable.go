@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -192,46 +191,40 @@ func (s *InboundService) markClientsDisabledInSettings(tx *gorm.DB, inboundID in
 	if err := tx.Model(&model.Inbound{}).Where("id = ?", inboundID).First(&ib).Error; err != nil {
 		return nil, nil, err
 	}
-	snapshot := ib
 
-	settings := map[string]any{}
-	if err := json.Unmarshal([]byte(ib.Settings), &settings); err != nil {
+	emailList := make([]string, 0, len(emails))
+	for e := range emails {
+		if e != "" {
+			emailList = append(emailList, e)
+		}
+	}
+	if len(emailList) == 0 {
+		return &ib, &ib, nil
+	}
+
+	if ib.NodeID != nil {
+		snapshot := ib
+		if err := s.rebuildInboundSettingsClients(tx, &snapshot); err != nil {
+			return nil, nil, err
+		}
+		now := time.Now().UnixMilli()
+		if err := tx.Model(&model.ClientRecord{}).Where("email IN ?", emailList).
+			Updates(map[string]any{"enable": false, "updated_at": now}).Error; err != nil {
+			return nil, nil, err
+		}
+		newInbound := ib
+		if err := s.rebuildInboundSettingsClients(tx, &newInbound); err != nil {
+			return nil, nil, err
+		}
+		return &snapshot, &newInbound, nil
+	}
+
+	now := time.Now().UnixMilli()
+	if err := tx.Model(&model.ClientRecord{}).Where("email IN ?", emailList).
+		Updates(map[string]any{"enable": false, "updated_at": now}).Error; err != nil {
 		return nil, nil, err
 	}
-	clients, _ := settings["clients"].([]any)
-	now := time.Now().Unix() * 1000
-	mutated := false
-	for i := range clients {
-		entry, ok := clients[i].(map[string]any)
-		if !ok {
-			continue
-		}
-		email, _ := entry["email"].(string)
-		if _, hit := emails[email]; !hit {
-			continue
-		}
-		if cur, _ := entry["enable"].(bool); cur == false {
-			continue
-		}
-		entry["enable"] = false
-		entry["updated_at"] = now
-		clients[i] = entry
-		mutated = true
-	}
-	if !mutated {
-		return &snapshot, &ib, nil
-	}
-	settings["clients"] = clients
-	bs, marshalErr := json.MarshalIndent(settings, "", "  ")
-	if marshalErr != nil {
-		return nil, nil, marshalErr
-	}
-	ib.Settings = string(bs)
-	if err := tx.Model(&model.Inbound{}).Where("id = ?", inboundID).
-		Update("settings", ib.Settings).Error; err != nil {
-		return nil, nil, err
-	}
-	return &snapshot, &ib, nil
+	return &ib, &ib, nil
 }
 
 func (s *InboundService) disableRemoteClients(tx *gorm.DB, inboundID int, emails map[string]struct{}) error {

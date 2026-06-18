@@ -59,8 +59,20 @@ func (s *InboundService) backfillClientStats(db *gorm.DB, inbounds []*model.Inbo
 	clientsByInbound := make([][]model.Client, len(inbounds))
 	seenByInbound := make([]map[string]struct{}, len(inbounds))
 	missing := make(map[string]struct{})
+
+	inboundIds := make([]int, 0, len(inbounds))
+	for _, inbound := range inbounds {
+		if inbound != nil && inbound.Id > 0 {
+			inboundIds = append(inboundIds, inbound.Id)
+		}
+	}
+	clientsByInboundMap, _ := s.clientService.ListForInbounds(db, inboundIds...)
+
 	for i, inbound := range inbounds {
-		clients, _ := s.GetClients(inbound)
+		clients := clientsByInboundMap[inbound.Id]
+		if len(clients) == 0 && inbound.Settings != "" {
+			clients, _ = parseClientsFromSettings(inbound.Settings)
+		}
 		clientsByInbound[i] = clients
 		seen := make(map[string]struct{}, len(inbound.ClientStats))
 		for _, st := range inbound.ClientStats {
