@@ -822,6 +822,15 @@ func (s *XrayService) GetOnlineUsers() ([]xray.OnlineUser, bool, error) {
 	return users, true, nil
 }
 
+// OnlineStatsKnownSupported reports whether the running core has already
+// answered the online-stats RPC successfully this process lifetime.
+func (s *XrayService) OnlineStatsKnownSupported() bool {
+	if p == nil {
+		return false
+	}
+	return p.OnlineAPISupport() == xray.OnlineAPISupported
+}
+
 // BalancerStatus is the live view of one balancer for the panel UI. Running
 // is false when the balancer isn't present in the running core (e.g. xray is
 // stopped or the balancer hasn't been saved/applied yet).

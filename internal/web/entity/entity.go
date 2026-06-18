@@ -90,6 +90,7 @@ type AllSetting struct {
 	SubCertFile                 string `json:"subCertFile" form:"subCertFile"`                                 // SSL certificate file for subscription server
 	SubKeyFile                  string `json:"subKeyFile" form:"subKeyFile"`                                   // SSL private key file for subscription server
 	SubUpdates                  int    `json:"subUpdates" form:"subUpdates" validate:"gte=0,lte=525600"`       // Subscription update interval in minutes
+	SubMaxInbounds              int    `json:"subMaxInbounds" form:"subMaxInbounds" validate:"gte=0,lte=1000"`   // Max inbounds per subscription fetch; 0 = unlimited; excess picked at random
 	ExternalTrafficInformEnable bool   `json:"externalTrafficInformEnable" form:"externalTrafficInformEnable"` // Enable external traffic reporting
 	ExternalTrafficInformURI    string `json:"externalTrafficInformURI" form:"externalTrafficInformURI"`       // URI for external traffic reporting
 	RestartXrayOnClientDisable  bool   `json:"restartXrayOnClientDisable" form:"restartXrayOnClientDisable"`   // Restart Xray when clients are auto-disabled by expiry/traffic limit

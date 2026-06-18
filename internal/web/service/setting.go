@@ -89,6 +89,7 @@ var defaultValueMap = map[string]string{
 	"subCertFile":                 "",
 	"subKeyFile":                  "",
 	"subUpdates":                  "12",
+	"subMaxInbounds":              "0",
 	"subEncrypt":                  "true",
 	"subURI":                      "",
 	"subJsonPath":                 "/json/",
@@ -791,6 +792,14 @@ func (s *SettingService) GetSubKeyFile() (string, error) {
 
 func (s *SettingService) GetSubUpdates() (string, error) {
 	return s.getString("subUpdates")
+}
+
+func (s *SettingService) GetSubMaxInbounds() (int, error) {
+	return s.getInt("subMaxInbounds")
+}
+
+func (s *SettingService) SetSubMaxInbounds(value int) error {
+	return s.setInt("subMaxInbounds", value)
 }
 
 func (s *SettingService) GetSubEncrypt() (bool, error) {

@@ -68,6 +68,9 @@ type Inbound struct {
 	NodeID            *int     `json:"nodeId,omitempty" form:"nodeId" gorm:"index"`
 	ShareAddrStrategy string   `json:"shareAddrStrategy" form:"shareAddrStrategy" gorm:"column:share_addr_strategy;default:node" validate:"omitempty,oneof=node listen custom"`
 	ShareAddr         string   `json:"shareAddr" form:"shareAddr" gorm:"column:share_addr"`
+	// LimitIP caps the total number of unique live source IPs across all clients
+	// on this inbound (0 = unlimited). Per-client limits are stored on clients.
+	LimitIP int `json:"limitIp" form:"limitIp" gorm:"column:limit_ip;default:0" validate:"gte=0" example:"0"`
 
 	// OriginNodeGuid is the panelGuid of the node that physically hosts this
 	// inbound, propagated up across hops (#4983). Empty for an inbound that

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   rawInboundToFormValues,
   formValuesToWirePayload,
+  mergeEditFormWithServer,
   type RawInboundRow,
 } from '@/lib/xray/inbound-form-adapter';
 import { InboundDbFieldsSchema, InboundFormSchema } from '@/schemas/forms/inbound-form';
@@ -302,5 +303,47 @@ describe('subSortIndex', () => {
     // A valid integer >= 1 must pass (guards against a mutant rejecting all values).
     expect(InboundDbFieldsSchema.partial().safeParse({ subSortIndex: 5 }).success).toBe(true);
     expect(InboundDbFieldsSchema.parse({}).subSortIndex).toBe(1);
+  });
+});
+
+describe('mergeEditFormWithServer', () => {
+  it('restores slim-list client secrets and missing streamSettings before save', () => {
+    const serverRow: RawInboundRow = {
+      id: 9,
+      protocol: 'hysteria',
+      port: 8443,
+      settings: {
+        version: 2,
+        clients: [{
+          email: 'user@test',
+          enable: true,
+          auth: 'secret-auth',
+          subId: 'abc',
+        }],
+      },
+      streamSettings: {
+        network: 'hysteria',
+        security: 'tls',
+        hysteriaSettings: { version: 2 },
+        finalmask: {
+          udp: [{ type: 'salamander', settings: { password: 'obfs-pw' } }],
+        },
+      },
+      sniffing: { enabled: false },
+    };
+    const slimForm = rawInboundToFormValues({
+      ...serverRow,
+      settings: {
+        version: 2,
+        clients: [{ email: 'user@test', enable: true }],
+      },
+      streamSettings: undefined,
+      sniffing: undefined,
+    });
+    const merged = mergeEditFormWithServer(slimForm, serverRow);
+    const clients = (merged.settings as { clients: Array<{ auth?: string }> }).clients;
+    expect(clients[0]?.auth).toBe('secret-auth');
+    expect(merged.streamSettings).toEqual(serverRow.streamSettings);
+    expect(merged.sniffing).toEqual({ enabled: false });
   });
 });

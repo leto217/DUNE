@@ -52,6 +52,7 @@ export class AllSetting {
   subCertFile = '';
   subKeyFile = '';
   subUpdates = 12;
+  subMaxInbounds = 0;
   subEncrypt = true;
   subURI = '';
   subJsonURI = '';
@@ -109,6 +110,10 @@ export class AllSetting {
     }
     const cpu = Math.round(Number(this.tgCpu));
     this.tgCpu = Number.isFinite(cpu) ? Math.min(100, Math.max(0, cpu)) : 80;
+    const sessionAge = Math.trunc(Number(this.sessionMaxAge));
+    this.sessionMaxAge = Number.isFinite(sessionAge)
+      ? Math.min(525600, Math.max(1, sessionAge))
+      : 360;
   }
 
   equals(other: AllSetting): boolean {

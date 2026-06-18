@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { screen, act } from '@testing-library/react';
 
 import InboundFormModal from '@/pages/inbounds/form/InboundFormModal';
 import { DBInbound } from '@/models/dbinbound';
+import { HttpUtil } from '@/utils';
 import {
   renderWithProviders,
   fieldLabels,
@@ -57,29 +58,32 @@ describe('InboundFormModal', () => {
   }, 30000); // iterates every protocol, re-rendering a heavy modal each time — slow on CI runners
 
   it('preserves custom share address strategy when editing a local inbound', async () => {
+    const inboundRow = {
+      id: 1,
+      port: 12345,
+      listen: '',
+      protocol: 'shadowsocks',
+      remark: 'edge',
+      enable: true,
+      settings: {
+        method: '2022-blake3-aes-128-gcm',
+        password: 'server-password',
+        network: 'tcp,udp',
+        clients: [],
+      },
+      streamSettings: { network: 'tcp', security: 'none', tcpSettings: {} },
+      sniffing: { enabled: false },
+      nodeId: null,
+      shareAddrStrategy: 'custom',
+      shareAddr: 'edge.example.test',
+    };
+    vi.spyOn(HttpUtil, 'get').mockResolvedValueOnce({ success: true, obj: inboundRow } as never);
+
     renderWithProviders(
       <InboundFormModal
         open
         mode="edit"
-        dbInbound={new DBInbound({
-          id: 1,
-          port: 12345,
-          listen: '',
-          protocol: 'shadowsocks',
-          remark: 'edge',
-          enable: true,
-          settings: {
-            method: '2022-blake3-aes-128-gcm',
-            password: 'server-password',
-            network: 'tcp,udp',
-            clients: [],
-          },
-          streamSettings: { network: 'tcp', security: 'none', tcpSettings: {} },
-          sniffing: { enabled: false },
-          nodeId: null,
-          shareAddrStrategy: 'custom',
-          shareAddr: 'edge.example.test',
-        })}
+        dbInbound={new DBInbound(inboundRow)}
         dbInbounds={[]}
         availableNodes={[]}
         onClose={() => {}}

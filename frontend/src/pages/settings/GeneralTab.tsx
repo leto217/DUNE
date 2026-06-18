@@ -178,8 +178,8 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
             </SettingListItem>
 
             <SettingListItem paddings="small" title={t('pages.settings.sessionMaxAge')} description={t('pages.settings.sessionMaxAgeDesc')}>
-              <InputNumber value={allSetting.sessionMaxAge} min={60} max={525600} style={{ width: '100%' }}
-                onChange={(v) => updateSetting({ sessionMaxAge: Number(v) || 0 })} />
+              <InputNumber value={allSetting.sessionMaxAge} min={1} max={525600} precision={0} style={{ width: '100%' }}
+                onChange={(v) => { if (v != null) updateSetting({ sessionMaxAge: Math.trunc(Number(v)) }); }} />
             </SettingListItem>
 
             <SettingListItem

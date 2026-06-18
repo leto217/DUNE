@@ -230,6 +230,32 @@ func TestPartitionLiveIps_RecentSyncedIpIsLive(t *testing.T) {
 	}
 }
 
+func TestClientIpLookupNeedsLimitWork(t *testing.T) {
+	lookup := func(limitIP int, pool bool) *clientIpLookup {
+		return &clientIpLookup{
+			LimitIP:               limitIP,
+			ClientEnable:          true,
+			HasEnabledInbound:     true,
+			HasPoolLimitedInbound: pool,
+		}
+	}
+	if lookup(0, false).needsLimitWork(true) {
+		t.Fatal("zero limits should skip enforcement work")
+	}
+	if !lookup(2, false).needsLimitWork(true) {
+		t.Fatal("per-client limit should require work")
+	}
+	if !lookup(0, true).needsLimitWork(true) {
+		t.Fatal("inbound pool limit should require work")
+	}
+	if !lookup(0, false).needsLimitWork(false) {
+		t.Fatal("collection mode should always track")
+	}
+	if lookup(0, true).needsPerClientEnforcement(true) {
+		t.Fatal("pool-only client should skip per-client enforcement path")
+	}
+}
+
 func TestCheckFail2BanInstalled_DisabledEnvSkipsClientProbe(t *testing.T) {
 	t.Setenv("DUNE_ENABLE_FAIL2BAN", "false")
 	marker := fakeFail2BanClient(t)

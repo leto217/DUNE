@@ -43,6 +43,7 @@ export interface RawInboundRow {
   shareAddrStrategy?: string;
   shareAddr?: string;
   subSortIndex?: number;
+  limitIp?: number;
   clientStats?: unknown;
 }
 
@@ -70,6 +71,7 @@ export interface WireInboundPayload {
   shareAddrStrategy: ShareAddrStrategy;
   shareAddr: string;
   subSortIndex: number;
+  limitIp: number;
 }
 
 function coerceJsonObject(value: unknown): Record<string, unknown> {
@@ -191,6 +193,7 @@ export function rawInboundToFormValues(row: RawInboundRow): InboundFormValues {
     shareAddrStrategy: coerceShareAddrStrategy(row.shareAddrStrategy),
     shareAddr: row.shareAddr ?? '',
     subSortIndex: Math.max(1, row.subSortIndex ?? 1),
+    limitIp: Math.max(0, row.limitIp ?? 0),
     protocol,
     settings,
   } as InboundFormValues;
@@ -245,6 +248,97 @@ export function normalizeClients(protocol: string, clients: unknown): unknown {
     const parsed = schema.safeParse(c);
     return parsed.success ? parsed.data : c;
   });
+}
+
+function clientSecretKeys(protocol: string): string[] {
+  switch (protocol) {
+    case 'vless':
+    case 'vmess':
+      return ['id', 'flow', 'security'];
+    case 'trojan':
+    case 'shadowsocks':
+      return ['password'];
+    case 'hysteria':
+      return ['auth'];
+    default:
+      return [];
+  }
+}
+
+function mergeClientSecrets(
+  protocol: string,
+  formClients: unknown[],
+  serverClients: unknown[],
+): unknown[] {
+  const byEmail = new Map<string, Record<string, unknown>>();
+  for (const entry of serverClients) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Record<string, unknown>;
+    const email = typeof row.email === 'string' ? row.email.trim().toLowerCase() : '';
+    if (email) byEmail.set(email, row);
+  }
+  const secretKeys = clientSecretKeys(protocol);
+  return formClients.map((entry) => {
+    if (!entry || typeof entry !== 'object') return entry;
+    const form = { ...(entry as Record<string, unknown>) };
+    const email = typeof form.email === 'string' ? form.email.trim().toLowerCase() : '';
+    const server = email ? byEmail.get(email) : undefined;
+    if (!server) return form;
+    for (const key of secretKeys) {
+      const formValue = form[key];
+      if (formValue == null || formValue === '') {
+        const serverValue = server[key];
+        if (serverValue != null && serverValue !== '') form[key] = serverValue;
+      }
+    }
+    for (const [key, serverValue] of Object.entries(server)) {
+      if (key === 'email' || key === 'enable' || key === 'comment') continue;
+      if (form[key] == null && serverValue != null) form[key] = serverValue;
+    }
+    return form;
+  });
+}
+
+// The inbounds list uses /list/slim, which strips per-client secrets and omits
+// streamSettings/sniffing from the SQL projection. If edit opens on that row
+// (hydrate failed or raced a refresh), a save would wipe credentials and
+// transport config. Reconcile form state against the server row fetched at
+// open time before building the wire payload.
+export function mergeEditFormWithServer(
+  values: InboundFormValues,
+  serverRow: RawInboundRow,
+): InboundFormValues {
+  const serverValues = rawInboundToFormValues(serverRow);
+  const formSettings = (values.settings ?? {}) as Record<string, unknown>;
+  const serverSettings = coerceJsonObject(serverRow.settings);
+  const formClients = Array.isArray(formSettings.clients) ? formSettings.clients : [];
+  const serverClients = Array.isArray(serverSettings.clients) ? serverSettings.clients : [];
+
+  let settings = values.settings;
+  if (formClients.length === 0 && serverClients.length > 0) {
+    settings = { ...formSettings, clients: serverClients } as InboundFormValues['settings'];
+  } else if (formClients.length > 0 && serverClients.length > 0) {
+    settings = {
+      ...formSettings,
+      clients: mergeClientSecrets(values.protocol, formClients, serverClients),
+    } as InboundFormValues['settings'];
+  }
+
+  const formStream = values.streamSettings as Record<string, unknown> | undefined;
+  const serverStream = serverValues.streamSettings as Record<string, unknown> | undefined;
+  const streamSettings = (!formStream || Object.keys(formStream).length === 0)
+    && serverStream && Object.keys(serverStream).length > 0
+    ? serverValues.streamSettings
+    : values.streamSettings;
+
+  const formSniffing = values.sniffing as Record<string, unknown> | undefined;
+  const serverSniffing = serverValues.sniffing as Record<string, unknown> | undefined;
+  const sniffing = (!formSniffing || Object.keys(formSniffing).length === 0)
+    && serverSniffing && Object.keys(serverSniffing).length > 0
+    ? serverValues.sniffing
+    : values.sniffing;
+
+  return { ...values, settings, streamSettings, sniffing };
 }
 
 // Sniffing normalizer matching the legacy Sniffing.toJson(): when
@@ -339,6 +433,7 @@ export function formValuesToWirePayload(values: InboundFormValues): WireInboundP
     shareAddrStrategy: values.shareAddrStrategy,
     shareAddr: values.shareAddr,
     subSortIndex: values.subSortIndex,
+    limitIp: values.limitIp,
   };
   if (values.nodeId != null) payload.nodeId = values.nodeId;
   return payload;

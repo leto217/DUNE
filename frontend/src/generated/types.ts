@@ -67,6 +67,7 @@ export interface AllSetting {
   subJsonURI: string;
   subKeyFile: string;
   subListen: string;
+  subMaxInbounds: number;
   subPath: string;
   subPort: number;
   subProfileUrl: string;
@@ -170,6 +171,7 @@ export interface AllSettingView {
   subJsonURI: string;
   subKeyFile: string;
   subListen: string;
+  subMaxInbounds: number;
   subPath: string;
   subPort: number;
   subProfileUrl: string;
@@ -344,6 +346,7 @@ export interface Inbound {
   fallbackParent?: FallbackParentInfo | null;
   id: number;
   lastTrafficResetTime: number;
+  limitIp: number;
   listen: string;
   nodeId?: number | null;
   originNodeGuid?: string;

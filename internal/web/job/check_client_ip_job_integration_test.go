@@ -195,11 +195,11 @@ func TestUpdateInboundClientIps_LiveIpNotBannedByStillFreshHistoricals(t *testin
 		{IP: "128.71.1.1", Timestamp: now},
 	}
 
-	inbound, err := j.getInboundByEmail(email)
+	lookup, err := j.getClientIpLookup(email)
 	if err != nil {
-		t.Fatalf("getInboundByEmail: %v", err)
+		t.Fatalf("getClientIpLookup: %v", err)
 	}
-	shouldCleanLog := j.updateInboundClientIps(row, inbound, email, live, true, false)
+	shouldCleanLog := j.updateInboundClientIps(row, lookup, email, live, true, false, make(map[int][]model.Client))
 
 	if shouldCleanLog {
 		t.Fatalf("shouldCleanLog must be false, nothing should have been banned with 1 live ip under limit 3")
@@ -225,7 +225,159 @@ func TestUpdateInboundClientIps_LiveIpNotBannedByStillFreshHistoricals(t *testin
 	}
 }
 
-// opposite invariant: when several ips are actually live and exceed
+func TestUpdateInboundClientIps_LimitFromClientsTable(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "clients-table-limit"
+	seedInboundWithClient(t, "inbound-clients-table", email, 0) // settings say 0
+
+	db := database.GetDB()
+	if err := db.Model(&model.ClientRecord{}).Where("email = ?", email).Update("limit_ip", 1).Error; err != nil {
+		t.Fatalf("update clients.limit_ip: %v", err)
+	}
+
+	now := time.Now().Unix()
+	row := seedClientIps(t, email, []IPWithTimestamp{
+		{IP: "10.2.0.1", Timestamp: now - 60},
+	})
+
+	j := NewCheckClientIpJob()
+	live := []IPWithTimestamp{
+		{IP: "10.2.0.1", Timestamp: now - 5},
+		{IP: "192.0.2.10", Timestamp: now},
+	}
+
+	lookup, err := j.getClientIpLookup(email)
+	if err != nil {
+		t.Fatalf("getClientIpLookup: %v", err)
+	}
+	if lookup.LimitIP != 1 {
+		t.Fatalf("expected limit 1 from clients table, got %d", lookup.LimitIP)
+	}
+
+	shouldCleanLog := j.updateInboundClientIps(row, lookup, email, live, true, false, make(map[int][]model.Client))
+	if !shouldCleanLog {
+		t.Fatal("expected ban when clients.limit_ip=1 overrides settings limitIp=0")
+	}
+	if len(j.disAllowedIps) != 1 || j.disAllowedIps[0] != "10.2.0.1" {
+		t.Fatalf("expected older live ip banned, got %v", j.disAllowedIps)
+	}
+}
+
+// First scan used to add the tracking row and continue without enforcing,
+// giving multi-IP clients a free pass until the next tick.
+func TestProcessObserved_EnforcesOnFirstScan(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "first-scan-enforce"
+	seedInboundWithClient(t, "inbound-first-scan", email, 1)
+
+	now := time.Now().Unix()
+	j := NewCheckClientIpJob()
+	observed := map[string]map[string]int64{
+		email: {
+			"10.9.0.1": now - 5,
+			"10.9.0.2": now,
+		},
+	}
+
+	if !j.processObserved(observed, true, true) {
+		t.Fatal("expected ban on the first scan when two live IPs exceed limit 1")
+	}
+	if len(j.disAllowedIps) != 1 || j.disAllowedIps[0] != "10.9.0.1" {
+		t.Fatalf("expected older live ip banned on first scan, got %v", j.disAllowedIps)
+	}
+}
+
+// When a client is linked to multiple inbounds, enforcement must not depend on
+// which inbound row the DB happens to return first.
+func TestUpdateInboundClientIps_EnforcesWithAnyEnabledInbound(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "multi-inbound-client"
+	seedInboundWithClient(t, "inbound-disabled", email, 1)
+	db := database.GetDB()
+
+	var disabledInbound model.Inbound
+	if err := db.Where("tag = ?", "inbound-disabled").First(&disabledInbound).Error; err != nil {
+		t.Fatalf("load disabled inbound: %v", err)
+	}
+	if err := db.Model(&disabledInbound).Update("enable", false).Error; err != nil {
+		t.Fatalf("disable inbound: %v", err)
+	}
+
+	enabledSettings, _ := json.Marshal(map[string]any{
+		"clients": []map[string]any{{"email": email, "limitIp": 1, "enable": true}},
+	})
+	enabledInbound := &model.Inbound{
+		Tag:      "inbound-enabled",
+		Enable:   true,
+		Protocol: model.VLESS,
+		Port:     4322,
+		Settings: string(enabledSettings),
+	}
+	if err := db.Create(enabledInbound).Error; err != nil {
+		t.Fatalf("create enabled inbound: %v", err)
+	}
+
+	var client model.ClientRecord
+	if err := db.Where("email = ?", email).First(&client).Error; err != nil {
+		t.Fatalf("load client: %v", err)
+	}
+	link := model.ClientInbound{ClientId: client.Id, InboundId: enabledInbound.Id}
+	if err := db.Create(&link).Error; err != nil {
+		t.Fatalf("link client to enabled inbound: %v", err)
+	}
+
+	lookup, err := NewCheckClientIpJob().getClientIpLookup(email)
+	if err != nil {
+		t.Fatalf("getClientIpLookup: %v", err)
+	}
+	if !lookup.HasEnabledInbound {
+		t.Fatal("expected HasEnabledInbound when client has an enabled inbound")
+	}
+
+	now := time.Now().Unix()
+	row := &model.InboundClientIps{ClientEmail: email}
+	j := NewCheckClientIpJob()
+	live := []IPWithTimestamp{
+		{IP: "198.51.100.1", Timestamp: now - 5},
+		{IP: "198.51.100.2", Timestamp: now},
+	}
+	if !j.updateInboundClientIps(row, lookup, email, live, true, true, make(map[int][]model.Client)) {
+		t.Fatal("expected enforcement even when the first joined inbound row is disabled")
+	}
+}
+
+func TestProcessObserved_EnforcesInboundPoolLimit(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "inbound-pool-limit"
+	seedInboundWithClient(t, "inbound-pool-limit", email, 0)
+
+	db := database.GetDB()
+	if err := db.Model(&model.Inbound{}).Where("tag = ?", "inbound-pool-limit").Update("limit_ip", 2).Error; err != nil {
+		t.Fatalf("set inbound limit_ip: %v", err)
+	}
+
+	now := time.Now().Unix()
+	j := NewCheckClientIpJob()
+	observed := map[string]map[string]int64{
+		email: {
+			"198.51.100.1": now - 10,
+			"198.51.100.2": now - 5,
+			"198.51.100.3": now,
+		},
+	}
+
+	if !j.processObserved(observed, true, true) {
+		t.Fatal("expected inbound pool limit to ban the oldest live IP")
+	}
+	if len(j.disAllowedIps) != 1 || j.disAllowedIps[0] != "198.51.100.1" {
+		t.Fatalf("expected oldest IP banned for inbound pool limit, got %v", j.disAllowedIps)
+	}
+}
+
 // the limit, the oldest connection is dropped and the most recent one
 // keeps the slot (last-IP-wins policy from #3735, restored in #4699).
 func TestUpdateInboundClientIps_ExcessLiveIpIsStillBanned(t *testing.T) {
@@ -248,11 +400,11 @@ func TestUpdateInboundClientIps_ExcessLiveIpIsStillBanned(t *testing.T) {
 		{IP: "192.0.2.9", Timestamp: now},
 	}
 
-	inbound, err := j.getInboundByEmail(email)
+	lookup, err := j.getClientIpLookup(email)
 	if err != nil {
-		t.Fatalf("getInboundByEmail: %v", err)
+		t.Fatalf("getClientIpLookup: %v", err)
 	}
-	shouldCleanLog := j.updateInboundClientIps(row, inbound, email, live, true, false)
+	shouldCleanLog := j.updateInboundClientIps(row, lookup, email, live, true, false, make(map[int][]model.Client))
 
 	if !shouldCleanLog {
 		t.Fatalf("shouldCleanLog must be true when the live set exceeds the limit")

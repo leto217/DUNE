@@ -20,7 +20,11 @@ import { HttpUtil, NumberFormatter, RandomUtil, SizeFormatter, Wireguard } from 
 import {
   rawInboundToFormValues,
   formValuesToWirePayload,
+  mergeEditFormWithServer,
+  type RawInboundRow,
 } from '@/lib/xray/inbound-form-adapter';
+import { parseMsg } from '@/utils/zodValidate';
+import { InboundDetailSchema } from '@/schemas/inbound';
 import { createDefaultInboundSettings } from '@/lib/xray/inbound-defaults';
 import { composeInboundTag, isAutoInboundTag, type InboundTagInput } from '@/lib/xray/inbound-tag';
 import {
@@ -172,6 +176,8 @@ export default function InboundFormModal({
   const [messageApi, messageContextHolder] = message.useMessage();
   const [form] = Form.useForm<InboundFormValues>();
   const [saving, setSaving] = useState(false);
+  const [loadingEdit, setLoadingEdit] = useState(false);
+  const serverInboundRef = useRef<RawInboundRow | null>(null);
   const {
     fallbacks,
     fallbackChildOptions,
@@ -323,33 +329,73 @@ export default function InboundFormModal({
   })();
 
   useEffect(() => {
-    if (!open) return;
-    const initial = mode === 'edit' && dbInbound
-      ? rawInboundToFormValues(dbInbound)
-      : buildAddModeValues();
-    form.resetFields();
-    form.setFieldsValue(initial);
-    const initialTag = (initial.tag ?? '') as string;
-    autoTagRef.current = isAutoInboundTag(initialTag, {
-      port: initial.port ?? 0,
-      nodeId: initial.nodeId ?? null,
-      protocol: initial.protocol,
-      streamSettings: (initial.streamSettings ?? {}) as Record<string, unknown>,
-      settings: (initial.settings ?? {}) as Record<string, unknown>,
-    });
-    lastWrittenTagRef.current = initialTag;
-    if (
-      mode === 'edit'
-      && dbInbound
-      && (dbInbound.protocol === Protocols.VLESS || dbInbound.protocol === Protocols.TROJAN)
-    ) {
-      loadFallbacks(dbInbound.id);
-    } else {
-      loadFallbacks(null);
+    if (!open) {
+      serverInboundRef.current = null;
+      setLoadingEdit(false);
+      return;
     }
 
+    let cancelled = false;
+
+    const applyInitial = (initial: InboundFormValues, editId: number | null) => {
+      form.resetFields();
+      form.setFieldsValue(initial);
+      const initialTag = (initial.tag ?? '') as string;
+      autoTagRef.current = isAutoInboundTag(initialTag, {
+        port: initial.port ?? 0,
+        nodeId: initial.nodeId ?? null,
+        protocol: initial.protocol,
+        streamSettings: (initial.streamSettings ?? {}) as Record<string, unknown>,
+        settings: (initial.settings ?? {}) as Record<string, unknown>,
+      });
+      lastWrittenTagRef.current = initialTag;
+      if (
+        editId != null
+        && (initial.protocol === Protocols.VLESS || initial.protocol === Protocols.TROJAN)
+      ) {
+        loadFallbacks(editId);
+      } else {
+        loadFallbacks(null);
+      }
+    };
+
+    if (mode === 'edit' && dbInbound?.id) {
+      setLoadingEdit(true);
+      void (async () => {
+        const msg = await HttpUtil.get(
+          `/panel/api/inbounds/get/${dbInbound.id}`,
+          undefined,
+          { silent: true },
+        );
+        if (cancelled) return;
+        if (!msg?.success || !msg.obj) {
+          messageApi.error(msg?.msg || t('somethingWentWrong'));
+          setLoadingEdit(false);
+          onClose();
+          return;
+        }
+        const validated = parseMsg(msg, InboundDetailSchema, `inbounds/get/${dbInbound.id}`);
+        if (!validated.obj) {
+          messageApi.error(t('somethingWentWrong'));
+          setLoadingEdit(false);
+          onClose();
+          return;
+        }
+        const row = validated.obj as RawInboundRow;
+        serverInboundRef.current = row;
+        applyInitial(rawInboundToFormValues(row), dbInbound.id);
+        setLoadingEdit(false);
+      })();
+    } else {
+      serverInboundRef.current = null;
+      applyInitial(buildAddModeValues(), null);
+    }
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, dbInbound, form]);
+  }, [open, mode, dbInbound?.id, form]);
 
   useEffect(() => {
     if (!open) return;
@@ -450,7 +496,10 @@ export default function InboundFormModal({
     // and the update wire payload would silently delete every client on
     // every save. getFieldsValue(true) returns the entire form store and
     // keeps those sub-trees intact.
-    const values = form.getFieldsValue(true) as InboundFormValues;
+    let values = form.getFieldsValue(true) as InboundFormValues;
+    if (mode === 'edit' && serverInboundRef.current) {
+      values = mergeEditFormWithServer(values, serverInboundRef.current);
+    }
     const parsed = InboundFormSchema.safeParse(values);
     if (!parsed.success) {
       const issues = parsed.error.issues;
@@ -571,6 +620,13 @@ export default function InboundFormModal({
         label={labelWithHint(t('pages.inbounds.form.subSortIndex'), t('pages.inbounds.form.subSortIndexHelp'))}
       >
         <InputNumber min={1} />
+      </Form.Item>
+
+      <Form.Item
+        name="limitIp"
+        label={labelWithHint(t('pages.inbounds.form.limitIp'), t('pages.inbounds.form.limitIpHelp'))}
+      >
+        <InputNumber min={0} />
       </Form.Item>
 
       <Form.Item
@@ -975,7 +1031,7 @@ export default function InboundFormModal({
         title={title}
         okText={okText}
         cancelText={t('close')}
-        confirmLoading={saving}
+        confirmLoading={saving || loadingEdit}
         mask={{ closable: false }}
         width={780}
         onOk={submit}

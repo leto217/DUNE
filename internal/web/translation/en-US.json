@@ -623,6 +623,8 @@
         "shareAddrHelp": "Used only when the share address strategy is Custom. Enter a host or IP without a scheme or port.",
         "subSortIndex": "Subscription sort order",
         "subSortIndexHelp": "Position of this inbound's links in subscription output (sub page and client apps). Lower values come first; equal values keep creation order. Does not affect the panel inbound list.",
+        "limitIp": "Inbound IP limit",
+        "limitIpHelp": "Maximum unique live source IPs across all clients on this inbound. 0 = unlimited. Per-client limits are configured on each client.",
         "shareAddrStrategyOptions": {
           "node": "Node address",
           "listen": "Inbound listen",
@@ -1225,6 +1227,8 @@
       "subDomainDesc": "The domain name for the subscription service. (leave blank to listen on all domains and IPs)",
       "subUpdates": "Update Intervals",
       "subUpdatesDesc": "The update intervals of the subscription URL in the client apps. (unit: hour)",
+      "subMaxInbounds": "Max Inbounds in Subscription",
+      "subMaxInboundsDesc": "Maximum inbounds included in each subscription response. When a client has more, a random subset is chosen on every fetch to spread load across nodes. Set to 0 for no limit.",
       "subEncrypt": "Encode",
       "subEncryptDesc": "The returned content of subscription service will be Base64 encoded.",
       "subURI": "Reverse Proxy URI",

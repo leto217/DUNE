@@ -335,7 +335,24 @@ func (s *SubService) getInboundsBySubId(subId string) ([]*model.Inbound, error) 
 	if err != nil {
 		return nil, err
 	}
-	return inbounds, nil
+	return s.limitInboundsForSub(inbounds), nil
+}
+
+// limitInboundsForSub caps how many inbounds subscription output may include.
+// When the client is attached to more than the configured maximum, a random
+// subset is returned on each fetch so load spreads across nodes/inbounds.
+// Zero or negative max means unlimited (preserve sub_sort_index order).
+func (s *SubService) limitInboundsForSub(inbounds []*model.Inbound) []*model.Inbound {
+	max, err := s.settingService.GetSubMaxInbounds()
+	if err != nil || max <= 0 || len(inbounds) <= max {
+		return inbounds
+	}
+	out := append([]*model.Inbound(nil), inbounds...)
+	for i := len(out) - 1; i > 0; i-- {
+		j := random.Num(i + 1)
+		out[i], out[j] = out[j], out[i]
+	}
+	return out[:max]
 }
 
 // projectThroughFallbackMaster mutates the inbound in place so its

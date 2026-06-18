@@ -1678,6 +1678,12 @@
             "minimum": 1,
             "type": "integer"
           },
+          "limitIp": {
+            "description": "Maximum unique live source IPs across all clients on this inbound (0 = unlimited)",
+            "example": 0,
+            "minimum": 0,
+            "type": "integer"
+          },
           "tag": {
             "example": "in-443-tcp",
             "type": "string"
@@ -1709,6 +1715,7 @@
           "expiryTime",
           "id",
           "lastTrafficResetTime",
+          "limitIp",
           "listen",
           "port",
           "protocol",

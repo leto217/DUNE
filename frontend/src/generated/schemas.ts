@@ -245,6 +245,12 @@ export const SCHEMAS: Record<string, unknown> = {
         "description": "Subscription server listen IP",
         "type": "string"
       },
+      "subMaxInbounds": {
+        "description": "Max inbounds per subscription fetch; 0 = unlimited; excess picked at random",
+        "maximum": 1000,
+        "minimum": 0,
+        "type": "integer"
+      },
       "subPath": {
         "description": "Base path for subscription URLs",
         "type": "string"
@@ -454,6 +460,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "subJsonURI",
       "subKeyFile",
       "subListen",
+      "subMaxInbounds",
       "subPath",
       "subPort",
       "subProfileUrl",
@@ -756,6 +763,12 @@ export const SCHEMAS: Record<string, unknown> = {
         "description": "Subscription server listen IP",
         "type": "string"
       },
+      "subMaxInbounds": {
+        "description": "Max inbounds per subscription fetch; 0 = unlimited; excess picked at random",
+        "maximum": 1000,
+        "minimum": 0,
+        "type": "integer"
+      },
       "subPath": {
         "description": "Base path for subscription URLs",
         "type": "string"
@@ -972,6 +985,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "subJsonURI",
       "subKeyFile",
       "subListen",
+      "subMaxInbounds",
       "subPath",
       "subPort",
       "subProfileUrl",
@@ -1215,6 +1229,7 @@ export const SCHEMAS: Record<string, unknown> = {
         "type": "integer"
       },
       "limitIp": {
+        "description": "limit_ip backs the every-tick existence probe in CheckClientIpJob.hasLimitIp\n(limit_ip \u003e 0 LIMIT 1); the index lets it seek instead of scanning clients.",
         "type": "integer"
       },
       "password": {
@@ -1231,6 +1246,7 @@ export const SCHEMAS: Record<string, unknown> = {
         "type": "string"
       },
       "tgId": {
+        "description": "tg_id backs GetClientTrafficTgBot's per-Telegram-account client lookup.",
         "type": "integer"
       },
       "totalGB": {
@@ -1240,6 +1256,7 @@ export const SCHEMAS: Record<string, unknown> = {
         "type": "integer"
       },
       "uuid": {
+        "description": "uuid/password back the credential lookup in SearchClientTraffic\n(uuid = ? OR password = ?); separate single-column indexes let the planner\nsatisfy either arm of the OR with an index probe instead of a table scan.",
         "type": "string"
       }
     },
@@ -1592,6 +1609,12 @@ export const SCHEMAS: Record<string, unknown> = {
         "description": "Last traffic reset timestamp",
         "type": "integer"
       },
+      "limitIp": {
+        "description": "LimitIP caps the total number of unique live source IPs across all clients\non this inbound (0 = unlimited). Per-client limits are stored on clients.",
+        "example": 0,
+        "minimum": 0,
+        "type": "integer"
+      },
       "listen": {
         "description": "Xray configuration fields",
         "type": "string"
@@ -1683,6 +1706,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "expiryTime",
       "id",
       "lastTrafficResetTime",
+      "limitIp",
       "listen",
       "port",
       "protocol",

@@ -4,6 +4,16 @@ const port = z.number().int().min(1).max(65535);
 const nonNegativeInt = z.number().int().min(0);
 const absolutePath = z.string().regex(/^\//, 'pages.settings.validation.pathLeadingSlash');
 
+/** Accepts API/form strings; skips null/empty so optional fields stay unset. */
+const optionalBoundedInt = (min: number, max: number) => z.preprocess(
+  (v) => {
+    if (v === null || v === undefined || v === '') return undefined;
+    const n = Math.trunc(Number(v));
+    return Number.isFinite(n) ? n : v;
+  },
+  z.number().int().min(min).max(max),
+).optional();
+
 export const AllSettingSchema = z.object({
   webListen: z.string().optional(),
   webDomain: z.string().optional(),
@@ -11,7 +21,7 @@ export const AllSettingSchema = z.object({
   webCertFile: z.string().optional(),
   webKeyFile: z.string().optional(),
   webBasePath: absolutePath.optional(),
-  sessionMaxAge: z.number().int().min(1).max(525600).optional(),
+  sessionMaxAge: optionalBoundedInt(1, 525600),
   trustedProxyCIDRs: z.string().optional(),
   panelOutbound: z.string().optional(),
   pageSize: z.number().int().min(0).max(1000).optional(),
@@ -57,6 +67,7 @@ export const AllSettingSchema = z.object({
   subCertFile: z.string().optional(),
   subKeyFile: z.string().optional(),
   subUpdates: z.number().int().min(1).max(168).optional(),
+  subMaxInbounds: nonNegativeInt.max(1000).optional(),
   subEncrypt: z.boolean().optional(),
   subURI: z.string().optional(),
   subJsonURI: z.string().optional(),

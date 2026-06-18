@@ -1079,6 +1079,7 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	oldInbound.Total = inbound.Total
 	oldInbound.Remark = inbound.Remark
 	oldInbound.SubSortIndex = inbound.SubSortIndex
+	oldInbound.LimitIP = inbound.LimitIP
 	oldInbound.Enable = inbound.Enable
 	oldInbound.ExpiryTime = inbound.ExpiryTime
 	oldInbound.TrafficReset = inbound.TrafficReset

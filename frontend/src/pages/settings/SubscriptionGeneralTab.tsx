@@ -82,6 +82,11 @@ export default function SubscriptionGeneralTab({ allSetting, updateSetting }: Su
               <InputNumber value={allSetting.subUpdates} min={1} style={{ width: '100%' }}
                 onChange={(v) => updateSetting({ subUpdates: Number(v) || 0 })} />
             </SettingListItem>
+
+            <SettingListItem paddings="small" title={t('pages.settings.subMaxInbounds')} description={t('pages.settings.subMaxInboundsDesc')}>
+              <InputNumber value={allSetting.subMaxInbounds} min={0} max={1000} precision={0} style={{ width: '100%' }}
+                onChange={(v) => updateSetting({ subMaxInbounds: Number(v) || 0 })} />
+            </SettingListItem>
           </>
         ),
       },

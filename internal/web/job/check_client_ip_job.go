@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gary/dune/internal/database"
@@ -26,6 +27,45 @@ import (
 type IPWithTimestamp struct {
 	IP        string `json:"ip"`
 	Timestamp int64  `json:"timestamp"`
+}
+
+// processedClientScan holds one client's observations from the current IP scan.
+type processedClientScan struct {
+	lookup      *clientIpLookup
+	ipsWithTime []IPWithTimestamp
+}
+
+// clientIpLookup bundles the inbound row with per-client limit metadata from
+// the normalized clients table. The IP-limit job used to json.Unmarshal the
+// full inbound.Settings blob on every scan tick per online user to read a
+// single limitIp field — that was the dominant CPU cost on busy panels.
+type clientIpLookup struct {
+	Inbound               *model.Inbound
+	LimitIP               int
+	ClientEnable          bool
+	HasEnabledInbound     bool // true when the client is linked to at least one enabled inbound
+	HasPoolLimitedInbound bool // true when linked to an enabled inbound with inbound.limit_ip > 0
+}
+
+// needsLimitWork reports whether this client participates in IP-limit tracking
+// this scan. Collection-only runs (enforce=false) always track; enforcement
+// runs skip clients with no per-client limit and no pool-limited inbound.
+func (l *clientIpLookup) needsLimitWork(enforce bool) bool {
+	if !enforce {
+		return true
+	}
+	if l.LimitIP > 0 && l.ClientEnable && l.HasEnabledInbound {
+		return true
+	}
+	return l.HasPoolLimitedInbound
+}
+
+// needsPerClientEnforcement is true when the per-client limit path must run.
+func (l *clientIpLookup) needsPerClientEnforcement(enforce bool) bool {
+	if !enforce {
+		return true
+	}
+	return l.LimitIP > 0 && l.ClientEnable && l.HasEnabledInbound
 }
 
 // CheckClientIpJob monitors client IP addresses and manages IP blocking based
@@ -62,18 +102,21 @@ func (j *CheckClientIpJob) Run() {
 		f2bInstalled = j.checkFail2BanInstalled()
 	}
 
-	if observed, apiMode := j.collectFromOnlineAPI(); apiMode {
-		if fail2BanEnabled {
-			j.processObserved(observed, j.resolveEnforce(hasLimit, f2bInstalled), true)
+	if hasLimit {
+		if observed, apiMode := j.collectFromOnlineAPI(); apiMode {
+			if len(observed) > 0 {
+				j.processObserved(observed, j.resolveEnforce(true, f2bInstalled), true)
+			}
+			// The core tracks online IPs itself, so no access log is needed in this
+			// mode; still rotate a user-configured access log hourly so it doesn't
+			// grow unboundedly. The enforcement-triggered rotation is skipped —
+			// nothing here reads the log.
+			if j.checkAccessLogAvailable(false) && time.Now().Unix()-j.lastClear > 3600 {
+				j.clearAccessLog()
+			}
+			return
 		}
-		// The core tracks online IPs itself, so no access log is needed in this
-		// mode; still rotate a user-configured access log hourly so it doesn't
-		// grow unboundedly. The enforcement-triggered rotation is skipped —
-		// nothing here reads the log.
-		if j.checkAccessLogAvailable(false) && time.Now().Unix()-j.lastClear > 3600 {
-			j.clearAccessLog()
-		}
-		return
+		// Online-stats unavailable: fall through to access-log parsing below.
 	}
 
 	shouldClearAccessLog := false
@@ -103,33 +146,45 @@ func (j *CheckClientIpJob) resolveEnforce(hasLimit, f2bInstalled bool) bool {
 // API is unavailable — xray not running, an older core, or a transient gRPC
 // failure — and the caller must fall back to access-log parsing.
 func (j *CheckClientIpJob) collectFromOnlineAPI() (map[string]map[string]int64, bool) {
-	onlineUsers, ok, err := j.xrayService.GetOnlineUsers()
-	if err != nil {
-		logger.Debug("[LimitIP] online-stats API unavailable this run:", err)
-		return nil, false
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		onlineUsers, ok, err := j.xrayService.GetOnlineUsers()
+		if ok {
+			now := time.Now().Unix()
+			observed := make(map[string]map[string]int64, len(onlineUsers))
+			for _, user := range onlineUsers {
+				for _, entry := range user.IPs {
+					// No localhost guard needed here: the core's OnlineMap.AddIP drops
+					// 127.0.0.1/[::1] itself, so they never reach this list.
+					ts := entry.LastSeen
+					if ts <= 0 {
+						ts = now
+					}
+					if _, exists := observed[user.Email]; !exists {
+						observed[user.Email] = make(map[string]int64)
+					}
+					if existing, seen := observed[user.Email][entry.IP]; !seen || ts > existing {
+						observed[user.Email][entry.IP] = ts
+					}
+				}
+			}
+			return observed, true
+		}
+		lastErr = err
+		if attempt == 0 && j.xrayService.OnlineStatsKnownSupported() {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		break
 	}
-	if !ok {
-		return nil, false
-	}
-	now := time.Now().Unix()
-	observed := make(map[string]map[string]int64, len(onlineUsers))
-	for _, user := range onlineUsers {
-		for _, entry := range user.IPs {
-			// No localhost guard needed here: the core's OnlineMap.AddIP drops
-			// 127.0.0.1/[::1] itself, so they never reach this list.
-			ts := entry.LastSeen
-			if ts <= 0 {
-				ts = now
-			}
-			if _, exists := observed[user.Email]; !exists {
-				observed[user.Email] = make(map[string]int64)
-			}
-			if existing, seen := observed[user.Email][entry.IP]; !seen || ts > existing {
-				observed[user.Email][entry.IP] = ts
-			}
+	if lastErr != nil {
+		if j.xrayService.OnlineStatsKnownSupported() {
+			logger.Warning("[LimitIP] online-stats API poll failed (will retry next tick):", lastErr)
+		} else {
+			logger.Debug("[LimitIP] online-stats API unavailable this run:", lastErr)
 		}
 	}
-	return observed, true
+	return nil, false
 }
 
 func (j *CheckClientIpJob) clearAccessLog() {
@@ -156,7 +211,10 @@ func (j *CheckClientIpJob) clearAccessLog() {
 func (j *CheckClientIpJob) hasLimitIp() bool {
 	db := database.GetDB()
 	var found int64
-	err := db.Model(&model.ClientRecord{}).Where("limit_ip > 0").Limit(1).Count(&found).Error
+	if err := db.Model(&model.ClientRecord{}).Where("limit_ip > 0").Limit(1).Count(&found).Error; err == nil && found > 0 {
+		return true
+	}
+	err := db.Model(&model.Inbound{}).Where("limit_ip > 0").Limit(1).Count(&found).Error
 	return err == nil && found > 0
 }
 
@@ -192,7 +250,7 @@ func (j *CheckClientIpJob) processLogFile(enforce bool) bool {
 		if len(emailMatches) < 2 {
 			continue
 		}
-		email := emailMatches[1]
+		email := strings.TrimSpace(emailMatches[1])
 
 		// Extract timestamp from log line
 		var timestamp int64
@@ -231,6 +289,9 @@ func (j *CheckClientIpJob) processLogFile(enforce bool) bool {
 func (j *CheckClientIpJob) processObserved(observed map[string]map[string]int64, enforce, observedAreLive bool) bool {
 	shouldCleanLog := false
 	now := time.Now().Unix()
+	// Parsed once per inbound per scan, only when a ban triggers disconnect.
+	settingsCache := make(map[int][]model.Client)
+	processed := make(map[string]processedClientScan, len(observed))
 	// attribution accumulates this scan's local observations per email so they can
 	// be recorded under this panel's own guid for cross-node IP attribution.
 	attribution := make(map[string][]model.ClientIpEntry, len(observed))
@@ -240,7 +301,7 @@ func (j *CheckClientIpJob) processObserved(observed map[string]map[string]int64,
 		// or deleted; its email no longer matches any inbound. Skip it (and
 		// drop any orphaned tracking row) instead of recreating a row and
 		// logging an ERROR every run (#4963).
-		inbound, err := j.getInboundByEmail(email)
+		lookup, err := j.getClientIpLookup(email)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				logger.Debugf("[LimitIP] skipping stale observed email %q (renamed or deleted)", email)
@@ -248,6 +309,9 @@ func (j *CheckClientIpJob) processObserved(observed map[string]map[string]int64,
 			} else {
 				j.checkError(err)
 			}
+			continue
+		}
+		if !lookup.needsLimitWork(enforce) {
 			continue
 		}
 
@@ -268,15 +332,27 @@ func (j *CheckClientIpJob) processObserved(observed map[string]map[string]int64,
 		if len(attrEntries) > 0 {
 			attribution[email] = attrEntries
 		}
+		processed[email] = processedClientScan{lookup: lookup, ipsWithTime: ipsWithTime}
 
-		clientIpsRecord, err := j.getInboundClientIps(email)
-		if err != nil {
-			j.addInboundClientIps(email, ipsWithTime)
+		if !lookup.needsPerClientEnforcement(enforce) {
 			continue
 		}
 
-		shouldCleanLog = j.updateInboundClientIps(clientIpsRecord, inbound, email, ipsWithTime, enforce, observedAreLive) || shouldCleanLog
+		clientIpsRecord, err := j.getInboundClientIps(email)
+		if err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				j.checkError(err)
+				continue
+			}
+			// First sighting: enforce on this same tick instead of waiting for
+			// the next scan (which could miss a briefly-connected extra IP).
+			clientIpsRecord = &model.InboundClientIps{ClientEmail: email}
+		}
+
+		shouldCleanLog = j.updateInboundClientIps(clientIpsRecord, lookup, email, ipsWithTime, enforce, observedAreLive, settingsCache) || shouldCleanLog
 	}
+
+	shouldCleanLog = j.enforceInboundLimits(processed, enforce, observedAreLive, settingsCache) || shouldCleanLog
 
 	j.recordLocalAttribution(attribution)
 
@@ -436,34 +512,41 @@ func (j *CheckClientIpJob) delInboundClientIps(clientEmail string) {
 	}
 }
 
-func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.InboundClientIps, inbound *model.Inbound, clientEmail string, newIpsWithTime []IPWithTimestamp, enforce, observedAreLive bool) bool {
-	if inbound.Settings == "" {
-		logger.Debug("wrong data:", inbound)
-		return false
+func ipMapToSlice(ipMap map[string]int64) []IPWithTimestamp {
+	out := make([]IPWithTimestamp, 0, len(ipMap))
+	for ip, ts := range ipMap {
+		out = append(out, IPWithTimestamp{IP: ip, Timestamp: ts})
 	}
+	return out
+}
 
-	settings := map[string][]model.Client{}
-	json.Unmarshal([]byte(inbound.Settings), &settings)
-	clients := settings["clients"]
-
-	// Find the client's IP limit
-	var limitIp int
-	var clientFound bool
-	for _, client := range clients {
-		if client.Email == clientEmail {
-			limitIp = client.LimitIP
-			clientFound = true
-			break
-		}
+func (j *CheckClientIpJob) persistObservedIPs(inboundClientIps *model.InboundClientIps, newIps []IPWithTimestamp, observedAreLive bool) {
+	var oldIps []IPWithTimestamp
+	if inboundClientIps.Ips != "" {
+		json.Unmarshal([]byte(inboundClientIps.Ips), &oldIps)
 	}
+	merged := mergeClientIps(oldIps, newIps, time.Now().Unix()-ipStaleAfterSeconds, observedAreLive)
+	ips := ipMapToSlice(merged)
 
-	if !enforce || !clientFound || limitIp <= 0 || !inbound.Enable {
-		// Nothing to enforce (collection-only run, no limit, client missing, or
-		// inbound disabled): record the observed IPs for the panel and return.
-		jsonIps, _ := json.Marshal(newIpsWithTime)
-		inboundClientIps.Ips = string(jsonIps)
-		db := database.GetDB()
-		db.Save(inboundClientIps)
+	jsonIps, err := json.Marshal(ips)
+	if err != nil {
+		j.checkError(err)
+		return
+	}
+	inboundClientIps.Ips = string(jsonIps)
+	if err := database.GetDB().Save(inboundClientIps).Error; err != nil {
+		j.checkError(err)
+	}
+}
+
+func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.InboundClientIps, lookup *clientIpLookup, clientEmail string, newIpsWithTime []IPWithTimestamp, enforce, observedAreLive bool, settingsCache map[int][]model.Client) bool {
+	inbound := lookup.Inbound
+	limitIp := lookup.LimitIP
+
+	if !enforce || limitIp <= 0 || !lookup.ClientEnable || !lookup.HasEnabledInbound {
+		// Nothing to enforce (collection-only run, no limit, client disabled, or
+		// no enabled inbound): record the observed IPs for the panel and return.
+		j.persistObservedIPs(inboundClientIps, newIpsWithTime, observedAreLive)
 		return false
 	}
 
@@ -509,7 +592,11 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 		}
 
 		// force xray to drop existing connections from banned ips
-		j.disconnectClientTemporarily(inbound, clientEmail, clients)
+		if clients, err := j.inboundClientsCached(inbound, settingsCache); err != nil {
+			logger.Warningf("[LIMIT_IP] could not load inbound clients for disconnect: %v", err)
+		} else {
+			j.disconnectClientTemporarily(inbound, clientEmail, clients)
+		}
 	}
 
 	// keep kept-live + historical in the blob so the panel keeps showing
@@ -659,18 +746,193 @@ func getAPIPortFromConfigData(configData []byte) (int, error) {
 	return 0, errors.New("api inbound port not found")
 }
 
-func (j *CheckClientIpJob) getInboundByEmail(clientEmail string) (*model.Inbound, error) {
+func (j *CheckClientIpJob) listInboundClientEmails(inboundID int) ([]string, error) {
+	var emails []string
+	err := database.GetDB().Table("clients").
+		Select("clients.email").
+		Joins("JOIN client_inbounds ON client_inbounds.client_id = clients.id").
+		Where("client_inbounds.inbound_id = ?", inboundID).
+		Pluck("clients.email", &emails).Error
+	return emails, err
+}
+
+type inboundLiveIP struct {
+	IP    string
+	TS    int64
+	Email string
+}
+
+func (j *CheckClientIpJob) liveIPsForClient(email string, scan processedClientScan, observedAreLive bool) []IPWithTimestamp {
+	newIps := scan.ipsWithTime
+	observedThisScan := make(map[string]bool, len(newIps))
+	for _, ipt := range newIps {
+		observedThisScan[ipt.IP] = true
+	}
+	var oldIps []IPWithTimestamp
+	if rec, err := j.getInboundClientIps(email); err == nil && rec.Ips != "" {
+		json.Unmarshal([]byte(rec.Ips), &oldIps)
+	}
+	ipMap := mergeClientIps(oldIps, newIps, time.Now().Unix()-ipStaleAfterSeconds, observedAreLive)
+	live, _ := partitionLiveIps(ipMap, observedThisScan)
+	return live
+}
+
+// enforceInboundLimits applies a cap on unique live source IPs across every
+// client attached to an inbound. Per-client limits are enforced earlier in
+// updateInboundClientIps; this pass catches shared-pool overuse.
+func (j *CheckClientIpJob) enforceInboundLimits(processed map[string]processedClientScan, enforce, observedAreLive bool, settingsCache map[int][]model.Client) bool {
+	if !enforce {
+		return false
+	}
+
+	var limitedInbounds []model.Inbound
+	if err := database.GetDB().Where("limit_ip > 0 AND enable = ?", true).Find(&limitedInbounds).Error; err != nil {
+		j.checkError(err)
+		return false
+	}
+	if len(limitedInbounds) == 0 {
+		return false
+	}
+
+	shouldCleanLog := false
+	for i := range limitedInbounds {
+		inbound := &limitedInbounds[i]
+		limit := inbound.LimitIP
+		emails, err := j.listInboundClientEmails(inbound.Id)
+		if err != nil {
+			j.checkError(err)
+			continue
+		}
+
+		liveByIP := make(map[string]inboundLiveIP)
+		for _, email := range emails {
+			scan := processed[email]
+			for _, entry := range j.liveIPsForClient(email, scan, observedAreLive) {
+				if cur, exists := liveByIP[entry.IP]; !exists || entry.Timestamp < cur.TS {
+					liveByIP[entry.IP] = inboundLiveIP{IP: entry.IP, TS: entry.Timestamp, Email: email}
+				}
+			}
+		}
+		if len(liveByIP) <= limit {
+			continue
+		}
+
+		liveList := make([]inboundLiveIP, 0, len(liveByIP))
+		for _, entry := range liveByIP {
+			liveList = append(liveList, entry)
+		}
+		sort.Slice(liveList, func(i, j int) bool { return liveList[i].TS < liveList[j].TS })
+		toBan := liveList[:len(liveList)-limit]
+		shouldCleanLog = true
+
+		logIpFile, err := os.OpenFile(xray.GetIPLimitLogPath(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			logger.Errorf("failed to open IP limit log file: %s", err)
+			continue
+		}
+		ipLogger := log.New(logIpFile, "", log.LstdFlags)
+		for _, banned := range toBan {
+			j.disAllowedIps = append(j.disAllowedIps, banned.IP)
+			ipLogger.Printf("[LIMIT_IP] Email = %s || Disconnecting OLD IP = %s || Timestamp = %d", banned.Email, banned.IP, banned.TS)
+			if clients, err := j.inboundClientsCached(inbound, settingsCache); err != nil {
+				logger.Warningf("[LIMIT_IP] could not load inbound clients for disconnect: %v", err)
+			} else {
+				j.disconnectClientTemporarily(inbound, banned.Email, clients)
+			}
+			j.removeIPFromClientRecord(banned.Email, banned.IP)
+		}
+		logIpFile.Close()
+
+		logger.Infof("[LIMIT_IP] Inbound %s: kept %d live IPs, queued %d for fail2ban (inbound limit %d)",
+			inbound.Tag, limit, len(toBan), limit)
+	}
+	return shouldCleanLog
+}
+
+func (j *CheckClientIpJob) removeIPFromClientRecord(email, bannedIP string) {
+	rec, err := j.getInboundClientIps(email)
+	if err != nil {
+		return
+	}
+	var ips []IPWithTimestamp
+	if rec.Ips != "" {
+		json.Unmarshal([]byte(rec.Ips), &ips)
+	}
+	filtered := make([]IPWithTimestamp, 0, len(ips))
+	for _, entry := range ips {
+		if entry.IP != bannedIP {
+			filtered = append(filtered, entry)
+		}
+	}
+	jsonIps, err := json.Marshal(filtered)
+	if err != nil {
+		j.checkError(err)
+		return
+	}
+	rec.Ips = string(jsonIps)
+	if err := database.GetDB().Save(rec).Error; err != nil {
+		j.checkError(err)
+	}
+}
+
+func (j *CheckClientIpJob) getClientIpLookup(clientEmail string) (*clientIpLookup, error) {
 	db := database.GetDB()
-	inbound := &model.Inbound{}
+	row := struct {
+		model.Inbound
+		LimitIP               int  `gorm:"column:limit_ip"`
+		ClientEnable          bool `gorm:"column:client_enable"`
+		HasEnabledInbound     bool `gorm:"column:has_enabled_inbound"`
+		HasPoolLimitedInbound bool `gorm:"column:has_pool_limited_inbound"`
+	}{}
 
 	err := db.Table("inbounds").
+		Select(`inbounds.*, clients.limit_ip, clients.enable AS client_enable,
+			EXISTS (
+				SELECT 1 FROM client_inbounds ci2
+				INNER JOIN inbounds i2 ON i2.id = ci2.inbound_id
+				WHERE ci2.client_id = clients.id AND i2.enable = ?
+			) AS has_enabled_inbound,
+			EXISTS (
+				SELECT 1 FROM client_inbounds ci2
+				INNER JOIN inbounds i2 ON i2.id = ci2.inbound_id
+				WHERE ci2.client_id = clients.id AND i2.enable = ? AND i2.limit_ip > 0
+			) AS has_pool_limited_inbound`, true, true).
 		Joins("JOIN client_inbounds ON client_inbounds.inbound_id = inbounds.id").
 		Joins("JOIN clients ON clients.id = client_inbounds.client_id").
 		Where("clients.email = ?", clientEmail).
-		First(inbound).Error
+		Order("inbounds.enable DESC, inbounds.id ASC").
+		First(&row).Error
 	if err != nil {
 		return nil, err
 	}
 
-	return inbound, nil
+	inbound := row.Inbound
+	return &clientIpLookup{
+		Inbound:               &inbound,
+		LimitIP:               row.LimitIP,
+		ClientEnable:          row.ClientEnable,
+		HasEnabledInbound:     row.HasEnabledInbound,
+		HasPoolLimitedInbound: row.HasPoolLimitedInbound,
+	}, nil
+}
+
+// inboundClientsCached parses inbound.Settings at most once per inbound per
+// scan. Only the rare ban/disconnect path needs the full client list.
+func (j *CheckClientIpJob) inboundClientsCached(inbound *model.Inbound, cache map[int][]model.Client) ([]model.Client, error) {
+	if inbound == nil {
+		return nil, errors.New("missing inbound")
+	}
+	if cached, ok := cache[inbound.Id]; ok {
+		return cached, nil
+	}
+	if inbound.Settings == "" {
+		return nil, errors.New("empty inbound settings")
+	}
+	settings := map[string][]model.Client{}
+	if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+		return nil, err
+	}
+	clients := settings["clients"]
+	cache[inbound.Id] = clients
+	return clients, nil
 }

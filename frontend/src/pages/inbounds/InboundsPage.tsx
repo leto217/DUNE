@@ -500,7 +500,11 @@ export default function InboundsPage() {
     let target = dbInbound;
     if (hydratingKeys.includes(key)) {
       const hydrated = await hydrateInbound(dbInbound.id);
-      if (hydrated) target = hydrated;
+      if (!hydrated) {
+        messageApi.error(t('somethingWentWrong'));
+        return;
+      }
+      target = hydrated;
     }
     switch (key) {
       case 'edit':
