@@ -62,6 +62,10 @@ type Inbound struct {
 	Port              int      `json:"port" form:"port" validate:"gte=0,lte=65535" example:"443"`
 	Protocol          Protocol `json:"protocol" form:"protocol" validate:"required,oneof=vmess vless trojan shadowsocks wireguard hysteria http mixed tunnel tun mtproto" example:"vless"`
 	Settings          string   `json:"settings" form:"settings"`
+	// ProtocolSettings holds inbound protocol fields only (no clients[]). After
+	// schema v2 this is the stored source of truth; Settings mirrors it for API
+	// compatibility. See protocol_settings.go and runSchemaMigrations.
+	ProtocolSettings string `json:"-" gorm:"column:protocol_settings"`
 	StreamSettings    string   `json:"streamSettings" form:"streamSettings"`
 	Tag               string   `json:"tag" form:"tag" gorm:"unique" example:"in-443-tcp"`
 	Sniffing          string   `json:"sniffing" form:"sniffing"`
@@ -279,7 +283,7 @@ func (i *Inbound) GenXrayInboundConfig() *xray.InboundConfig {
 	}
 	listen = fmt.Sprintf("\"%v\"", listen)
 	protocol := string(i.Protocol)
-	settings := i.Settings
+	settings := i.ProtocolJSON()
 	switch i.Protocol {
 	case Shadowsocks:
 		if healed, ok := HealShadowsocksClientMethods(settings); ok {

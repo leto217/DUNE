@@ -196,7 +196,7 @@ func (s *InboundService) GetInboundsSlim(userId int) ([]*model.Inbound, error) {
 	db := database.GetDB()
 	var inbounds []*model.Inbound
 	err := db.Model(model.Inbound{}).
-		Select("id, user_id, up, down, total, remark, sub_sort_index, enable, expiry_time, traffic_reset, last_traffic_reset_time, listen, port, protocol, settings, tag, node_id, share_addr_strategy, share_addr, origin_node_guid").
+		Select("id, user_id, up, down, total, remark, sub_sort_index, enable, expiry_time, traffic_reset, last_traffic_reset_time, listen, port, protocol, settings, protocol_settings, tag, node_id, share_addr_strategy, share_addr, origin_node_guid").
 		Preload("ClientStats").
 		Where("user_id = ?", userId).
 		Order("id ASC").
@@ -214,7 +214,7 @@ func (s *InboundService) GetInboundsSlim(userId int) ([]*model.Inbound, error) {
 	// math may see the cross-panel totals a master pushed.
 	s.overlayInboundsClientStats(db, inbounds)
 	for _, ib := range inbounds {
-		ib.Settings = slimSettingsClients(ib.Settings)
+		ib.Settings = ib.ProtocolJSON()
 	}
 	return inbounds, nil
 }
@@ -415,7 +415,7 @@ func (s *InboundService) GetClients(inbound *model.Inbound) ([]model.Client, err
 		if err != nil {
 			return nil, err
 		}
-		if len(clients) > 0 || inbound.Settings == "" {
+		if len(clients) > 0 || (inbound.Settings == "" && inbound.ProtocolSettings == "") {
 			return clients, nil
 		}
 	}
@@ -485,7 +485,8 @@ func (s *InboundService) normalizeMtprotoSecret(inbound *model.Inbound) {
 	if inbound.Protocol != model.MTProto {
 		return
 	}
-	if healed, ok := model.HealMtprotoSecret(inbound.Settings); ok {
+	if healed, ok := model.HealMtprotoSecret(inbound.ProtocolJSON()); ok {
+		inbound.ProtocolSettings = healed
 		inbound.Settings = healed
 	}
 }
@@ -621,10 +622,11 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 		return inbound, false, err
 	}
 
-	clients, err := s.GetClients(inbound)
+	clients, err := parseClientsFromSettings(inbound.Settings)
 	if err != nil {
 		return inbound, false, err
 	}
+	enrichPayloadClients(clients)
 	existEmail, err := s.clientService.checkEmailsExistForClients(s, clients, nil)
 	if err != nil {
 		return inbound, false, err
@@ -633,27 +635,14 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 		return inbound, false, common.NewError("Duplicate email:", existEmail)
 	}
 
-	// Ensure created_at and updated_at on clients in settings
+	// Timestamps on new inbound clients.
 	if len(clients) > 0 {
-		var settings map[string]any
-		if err2 := json.Unmarshal([]byte(inbound.Settings), &settings); err2 == nil && settings != nil {
-			now := time.Now().Unix() * 1000
-			updatedClients := make([]model.Client, 0, len(clients))
-			for _, c := range clients {
-				if c.CreatedAt == 0 {
-					c.CreatedAt = now
-				}
-				c.UpdatedAt = now
-				updatedClients = append(updatedClients, c)
+		now := time.Now().Unix() * 1000
+		for i := range clients {
+			if clients[i].CreatedAt == 0 {
+				clients[i].CreatedAt = now
 			}
-			settings["clients"] = updatedClients
-			if bs, err3 := json.MarshalIndent(settings, "", "  "); err3 == nil {
-				inbound.Settings = string(bs)
-			} else {
-				logger.Debug("Unable to marshal inbound settings with timestamps:", err3)
-			}
-		} else if err2 != nil {
-			logger.Debug("Unable to parse inbound settings for timestamps:", err2)
+			clients[i].UpdatedAt = now
 		}
 	}
 
@@ -661,7 +650,18 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	// the inbound method (e.g. an API caller supplied a wrong-size key).
 	if normalized, changed := normalizeShadowsocksClientKeys(inbound.Settings); changed {
 		inbound.Settings = normalized
+		clients, err = parseClientsFromSettings(normalized)
+		if err != nil {
+			return inbound, false, err
+		}
 	}
+
+	protocolJSON, err := model.CompactProtocolSettingsJSON(inbound.Settings)
+	if err != nil {
+		return inbound, false, err
+	}
+	inbound.Settings = protocolJSON
+	inbound.ProtocolSettings = protocolJSON
 
 	// Secure client ID
 	for _, client := range clients {
@@ -903,6 +903,11 @@ func (s *InboundService) GetInboundDetail(id int) (*model.Inbound, error) {
 	}
 	s.enrichClientStats(db, []*model.Inbound{inbound})
 	s.overlayInboundsClientStats(db, []*model.Inbound{inbound})
+	// Assemble settings.clients from normalized tables for the edit UI; stored
+	// columns stay protocol-only after schema v2.
+	if runtime, rErr := s.buildRuntimeInboundForAPI(db, inbound); rErr == nil {
+		inbound.Settings = runtime.Settings
+	}
 	return inbound, nil
 }
 
@@ -996,12 +1001,17 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	// with the new settings further down, then ensure a routed inbound keeps a
 	// stable egress port (reusing the one already stored).
 	oldRoutedMtproto := mtprotoRoutesThroughXray(oldInbound)
-	if err := s.normalizeMtprotoXrayPort(inbound, oldInbound.Settings); err != nil {
+	if err := s.normalizeMtprotoXrayPort(inbound, oldInbound.ProtocolJSON()); err != nil {
+		return inbound, false, err
+	}
+
+	payloadClients, err := parseClientsFromSettings(inbound.Settings)
+	if err != nil {
 		return inbound, false, err
 	}
 
 	tag := oldInbound.Tag
-	oldBits := inboundTransports(oldInbound.Protocol, oldInbound.StreamSettings, oldInbound.Settings)
+	oldBits := inboundTransports(oldInbound.Protocol, oldInbound.StreamSettings, oldInbound.ProtocolJSON())
 	oldTagWasAuto := isAutoGeneratedTag(tag, oldInbound.Port, oldInbound.NodeID, oldBits)
 
 	db := database.GetDB()
@@ -1026,60 +1036,31 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		return inbound, false, err
 	}
 
-	// Ensure created_at and updated_at exist in inbound.Settings clients
+	// Preserve per-client timestamps from DB when the UI omits them.
 	{
-		var oldSettings map[string]any
-		_ = json.Unmarshal([]byte(oldInbound.Settings), &oldSettings)
+		oldDBClients, _ := s.GetClients(oldInbound)
 		emailToCreated := map[string]int64{}
 		emailToUpdated := map[string]int64{}
-		if oldSettings != nil {
-			if oc, ok := oldSettings["clients"].([]any); ok {
-				for _, it := range oc {
-					if m, ok2 := it.(map[string]any); ok2 {
-						if email, ok3 := m["email"].(string); ok3 {
-							switch v := m["created_at"].(type) {
-							case float64:
-								emailToCreated[email] = int64(v)
-							case int64:
-								emailToCreated[email] = v
-							}
-							switch v := m["updated_at"].(type) {
-							case float64:
-								emailToUpdated[email] = int64(v)
-							case int64:
-								emailToUpdated[email] = v
-							}
-						}
-					}
-				}
+		for _, c := range oldDBClients {
+			if c.CreatedAt > 0 {
+				emailToCreated[c.Email] = c.CreatedAt
+			}
+			if c.UpdatedAt > 0 {
+				emailToUpdated[c.Email] = c.UpdatedAt
 			}
 		}
-		var newSettings map[string]any
-		if err2 := json.Unmarshal([]byte(inbound.Settings), &newSettings); err2 == nil && newSettings != nil {
-			now := time.Now().Unix() * 1000
-			if nSlice, ok := newSettings["clients"].([]any); ok {
-				for i := range nSlice {
-					if m, ok2 := nSlice[i].(map[string]any); ok2 {
-						email, _ := m["email"].(string)
-						if _, ok3 := m["created_at"]; !ok3 {
-							if v, ok4 := emailToCreated[email]; ok4 && v > 0 {
-								m["created_at"] = v
-							} else {
-								m["created_at"] = now
-							}
-						}
-						// Preserve client's updated_at if present; do not bump on parent inbound update
-						if _, hasUpdated := m["updated_at"]; !hasUpdated {
-							if v, ok4 := emailToUpdated[email]; ok4 && v > 0 {
-								m["updated_at"] = v
-							}
-						}
-						nSlice[i] = m
-					}
+		now := time.Now().Unix() * 1000
+		for i := range payloadClients {
+			if payloadClients[i].CreatedAt == 0 {
+				if v, ok := emailToCreated[payloadClients[i].Email]; ok && v > 0 {
+					payloadClients[i].CreatedAt = v
+				} else {
+					payloadClients[i].CreatedAt = now
 				}
-				newSettings["clients"] = nSlice
-				if bs, err3 := json.MarshalIndent(newSettings, "", "  "); err3 == nil {
-					inbound.Settings = string(bs)
+			}
+			if payloadClients[i].UpdatedAt == 0 {
+				if v, ok := emailToUpdated[payloadClients[i].Email]; ok && v > 0 {
+					payloadClients[i].UpdatedAt = v
 				}
 			}
 		}
@@ -1090,8 +1071,19 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	// client keys so the inbound stays connectable.
 	if normalized, changed := normalizeShadowsocksClientKeys(inbound.Settings); changed {
 		inbound.Settings = normalized
+		payloadClients, err = parseClientsFromSettings(normalized)
+		if err != nil {
+			return inbound, false, err
+		}
 		logger.Warning("Shadowsocks inbound", inbound.Id, "method change resized keys; regenerated mismatched client PSK(s)")
 	}
+
+	protocolJSON, err := model.CompactProtocolSettingsJSON(inbound.Settings)
+	if err != nil {
+		return inbound, false, err
+	}
+	inbound.Settings = protocolJSON
+	inbound.ProtocolSettings = protocolJSON
 
 	oldInbound.Total = inbound.Total
 	oldInbound.Remark = inbound.Remark
@@ -1103,7 +1095,8 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	oldInbound.Listen = inbound.Listen
 	oldInbound.Port = inbound.Port
 	oldInbound.Protocol = inbound.Protocol
-	oldInbound.Settings = inbound.Settings
+	oldInbound.Settings = protocolJSON
+	oldInbound.ProtocolSettings = protocolJSON
 	oldInbound.StreamSettings = inbound.StreamSettings
 	oldInbound.Sniffing = inbound.Sniffing
 	if strings.TrimSpace(inbound.ShareAddrStrategy) == "" {
@@ -1182,12 +1175,7 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	if err = tx.Save(oldInbound).Error; err != nil {
 		return inbound, false, err
 	}
-	newClients, gcErr := s.GetClients(oldInbound)
-	if gcErr != nil {
-		err = gcErr
-		return inbound, false, err
-	}
-	if err = s.clientService.SyncInbound(tx, oldInbound.Id, newClients); err != nil {
+	if err = s.clientService.SyncInbound(tx, oldInbound.Id, payloadClients); err != nil {
 		return inbound, false, err
 	}
 	// (Re)generate the Xray config whenever routing was or is now enabled, so the
@@ -1209,7 +1197,7 @@ func (s *InboundService) buildRuntimeInboundForAPI(tx *gorm.DB, inbound *model.I
 	// truth), mirroring GetXrayConfig so a single-inbound hot-apply produces
 	// exactly the same client set a full restart would.
 	settings := map[string]any{}
-	if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+	if err := json.Unmarshal([]byte(inbound.ProtocolJSON()), &settings); err != nil {
 		return nil, err
 	}
 

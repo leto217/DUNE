@@ -82,6 +82,7 @@ func ensurePerformanceIndexes(db *gorm.DB) error {
 
 func initModels() error {
 	models := []any{
+		&model.DBMeta{},
 		&model.User{},
 		&model.Inbound{},
 		&model.OutboundTraffics{},
@@ -411,12 +412,6 @@ func runSeeders(isUsersEmpty bool) error {
 
 	if !slices.Contains(seedersHistory, "ClientsTable") {
 		if err := seedClientsFromInboundJSON(); err != nil {
-			return err
-		}
-	}
-
-	if !slices.Contains(seedersHistory, "SlimInboundSettingsClients") {
-		if err := slimInboundSettingsClientsSeed(); err != nil {
 			return err
 		}
 	}
@@ -1013,6 +1008,9 @@ func InitDB(dbPath string) error {
 	}
 
 	if err := initUser(); err != nil {
+		return err
+	}
+	if err := runSchemaMigrations(); err != nil {
 		return err
 	}
 	return runSeeders(isUsersEmpty)

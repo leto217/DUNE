@@ -3,8 +3,11 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/gary/dune/internal/database/model"
+	"github.com/gary/dune/internal/util/random"
 
 	"gorm.io/gorm"
 )
@@ -25,58 +28,108 @@ func parseClientsFromSettings(settings string) ([]model.Client, error) {
 	return parsed["clients"], nil
 }
 
-// stripInboundSettingsClients rewrites inbounds.settings so clients[] is empty.
-// Client credentials live in the clients / client_inbounds tables; keeping a
-// copy in settings made every list/sub/config path json.Unmarshal the full
-// client list (tens of MB on busy panels).
+// inboundProtocolMap unmarshals protocol-only settings (no clients decode).
+func inboundProtocolMap(inbound *model.Inbound) (map[string]any, error) {
+	if inbound == nil {
+		return nil, fmt.Errorf("inbound is nil")
+	}
+	var settings map[string]any
+	if err := json.Unmarshal([]byte(inbound.ProtocolJSON()), &settings); err != nil {
+		return nil, err
+	}
+	return settings, nil
+}
+
+// persistInboundProtocolColumns writes protocol-only JSON to both stored columns.
+func persistInboundProtocolColumns(tx *gorm.DB, inboundId int, protocolJSON string) error {
+	if inboundId <= 0 {
+		return nil
+	}
+	return tx.Model(&model.Inbound{}).Where("id = ?", inboundId).Updates(map[string]any{
+		"protocol_settings": protocolJSON,
+		"settings":          protocolJSON,
+	}).Error
+}
+
+// persistProtocolFromPayload stores protocol fields from an API payload that
+// may still include clients[].
+func persistProtocolFromPayload(tx *gorm.DB, inboundId int, payloadSettings string) error {
+	protocol, err := model.CompactProtocolSettingsJSON(payloadSettings)
+	if err != nil {
+		return err
+	}
+	return persistInboundProtocolColumns(tx, inboundId, protocol)
+}
+
+// stripInboundSettingsClients ensures stored JSON columns never carry clients[].
 func stripInboundSettingsClients(tx *gorm.DB, inboundId int) error {
 	if inboundId <= 0 {
 		return nil
 	}
 	var ib model.Inbound
-	if err := tx.Select("id", "settings").First(&ib, inboundId).Error; err != nil {
+	if err := tx.Select("id", "settings", "protocol_settings").First(&ib, inboundId).Error; err != nil {
 		return err
 	}
-	stripped, changed, err := compactSettingsWithoutClients(ib.Settings)
-	if err != nil || !changed {
+	protocol := ib.ProtocolJSON()
+	stripped, err := model.CompactProtocolSettingsJSON(protocol)
+	if err != nil {
 		return err
 	}
-	return tx.Model(&model.Inbound{}).Where("id = ?", inboundId).Update("settings", stripped).Error
+	if stripped == protocol && ib.ProtocolSettings != "" {
+		return nil
+	}
+	return persistInboundProtocolColumns(tx, inboundId, stripped)
 }
 
 // compactSettingsWithoutClients returns settings with clients[] replaced by [].
-// Uses json.RawMessage so nested client objects are not decoded into maps.
 func compactSettingsWithoutClients(settings string) (string, bool, error) {
-	if settings == "" {
-		return `{"clients":[]}`, true, nil
-	}
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(settings), &top); err != nil {
-		return settings, false, err
-	}
-	if raw, ok := top["clients"]; ok && string(raw) == "[]" {
-		return settings, false, nil
-	}
-	top["clients"] = json.RawMessage("[]")
-	out, err := json.Marshal(top)
+	stripped, err := model.CompactProtocolSettingsJSON(settings)
 	if err != nil {
 		return settings, false, err
 	}
-	return string(out), true, nil
+	if stripped == settings {
+		return settings, false, nil
+	}
+	return stripped, true, nil
+}
+
+// singleClientPayloadSettings builds API update payload JSON: protocol fields plus
+// one client row (UpdateInboundClient reads clients[] from the payload only).
+func singleClientPayloadSettings(inbound *model.Inbound, client model.Client) (string, error) {
+	settings, err := inboundProtocolMap(inbound)
+	if err != nil {
+		return "", err
+	}
+	settings["clients"] = []model.Client{client}
+	bs, err := json.Marshal(settings)
+	if err != nil {
+		return "", err
+	}
+	return string(bs), nil
+}
+
+func enrichPayloadClients(clients []model.Client) {
+	nowTs := time.Now().Unix() * 1000
+	for i := range clients {
+		if clients[i].CreatedAt == 0 {
+			clients[i].CreatedAt = nowTs
+		}
+		clients[i].UpdatedAt = nowTs
+		if strings.TrimSpace(clients[i].SubID) == "" {
+			clients[i].SubID = random.NumLower(16)
+		}
+	}
 }
 
 // rebuildInboundSettingsClients injects the normalized client list into an
-// in-memory inbound before pushing to xray or a remote node. Stored settings
-// stay slim; this is only for runtime/wire snapshots.
+// in-memory inbound before pushing to xray or a remote node.
 func (s *InboundService) rebuildInboundSettingsClients(tx *gorm.DB, inbound *model.Inbound) error {
 	if inbound == nil {
 		return fmt.Errorf("inbound is nil")
 	}
-	settings := map[string]any{}
-	if inbound.Settings != "" {
-		if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
-			return err
-		}
+	settings, err := inboundProtocolMap(inbound)
+	if err != nil {
+		return err
 	}
 	clients, err := s.clientService.ListForInbound(tx, inbound.Id)
 	if err != nil {
@@ -93,4 +146,36 @@ func (s *InboundService) rebuildInboundSettingsClients(tx *gorm.DB, inbound *mod
 	}
 	inbound.Settings = string(bs)
 	return nil
+}
+
+// persistVlessTestseedFromClients updates protocol JSON when testseed should be
+// dropped because no client uses xtls-rprx-vision.
+func persistVlessTestseedFromClients(tx *gorm.DB, inboundId int, clients []model.Client) error {
+	var ib model.Inbound
+	if err := tx.Select("id", "settings", "protocol_settings", "protocol").First(&ib, inboundId).Error; err != nil {
+		return err
+	}
+	if ib.Protocol != model.VLESS {
+		return nil
+	}
+	protoMap, err := inboundProtocolMap(&ib)
+	if err != nil {
+		return err
+	}
+	hasVisionFlow := false
+	for _, c := range clients {
+		if c.Flow == "xtls-rprx-vision" {
+			hasVisionFlow = true
+			break
+		}
+	}
+	if hasVisionFlow {
+		return nil
+	}
+	delete(protoMap, "testseed")
+	bs, err := json.Marshal(protoMap)
+	if err != nil {
+		return err
+	}
+	return persistInboundProtocolColumns(tx, inboundId, string(bs))
 }

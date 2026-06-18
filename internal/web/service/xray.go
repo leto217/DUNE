@@ -188,7 +188,7 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 
 	for _, inbound := range inbounds {
 		settings := map[string]any{}
-		json.Unmarshal([]byte(inbound.Settings), &settings)
+		json.Unmarshal([]byte(inbound.ProtocolJSON()), &settings)
 
 		dbClients := clientsByInbound[inbound.Id]
 
@@ -266,7 +266,7 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 		}
 
 		if inbound.Protocol == model.Shadowsocks {
-			if healed, ok := model.HealShadowsocksClientMethods(inbound.Settings); ok {
+			if healed, ok := model.HealShadowsocksClientMethods(inbound.ProtocolJSON()); ok {
 				inbound.Settings = healed
 			}
 		}

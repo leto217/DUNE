@@ -38,6 +38,7 @@ func migrationModels() []any {
 	return []any{
 		&model.User{},
 		&model.Setting{},
+		&model.DBMeta{},
 		&model.HistoryOfSeeders{},
 		&model.Node{},
 		&model.ApiToken{},
