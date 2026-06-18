@@ -97,6 +97,20 @@ func (s *ClientService) Create(inboundSvc *InboundService, payload *ClientCreate
 	}
 
 	needRestart := false
+	emailSubIDs, sidErr := inboundSvc.getAllEmailSubIDs()
+	if sidErr != nil {
+		emailSubIDs = nil
+	}
+
+	wireClient := client
+	if len(payload.InboundIds) > 0 {
+		if firstIb, getErr := inboundSvc.GetInbound(payload.InboundIds[0]); getErr != nil {
+			return false, getErr
+		} else if fillErr := s.fillProtocolDefaults(&wireClient, firstIb); fillErr != nil {
+			return false, fillErr
+		}
+	}
+
 	var (
 		crMu    sync.Mutex
 		crWg    sync.WaitGroup
@@ -115,14 +129,17 @@ func (s *ClientService) Create(inboundSvc *InboundService, payload *ClientCreate
 				crMu.Unlock()
 				return
 			}
-			clientCopy := client
-			if err := s.fillProtocolDefaults(&clientCopy, inbound); err != nil {
-				crMu.Lock()
-				if firstErr == nil {
-					firstErr = err
+
+			clientCopy := wireClient
+			if inbound.Protocol == model.Shadowsocks {
+				if err := s.fillProtocolDefaults(&clientCopy, inbound); err != nil {
+					crMu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					crMu.Unlock()
+					return
 				}
-				crMu.Unlock()
-				return
 			}
 			settingsPayload, mErr := json.Marshal(map[string][]model.Client{"clients": {clientWithInboundFlow(clientCopy, inbound)}})
 			if mErr != nil {
@@ -133,10 +150,10 @@ func (s *ClientService) Create(inboundSvc *InboundService, payload *ClientCreate
 				crMu.Unlock()
 				return
 			}
-			nr, addErr := s.AddInboundClient(inboundSvc, &model.Inbound{
+			nr, addErr := s.addInboundClient(inboundSvc, &model.Inbound{
 				Id:       ibId,
 				Settings: string(settingsPayload),
-			})
+			}, emailSubIDs)
 			crMu.Lock()
 			if addErr != nil && firstErr == nil {
 				firstErr = addErr
@@ -524,6 +541,11 @@ func (s *ClientService) Attach(inboundSvc *InboundService, id int, inboundIds []
 	clientWire.Flow = flow
 	clientWire.UpdatedAt = time.Now().UnixMilli()
 
+	emailSubIDs, sidErr := inboundSvc.getAllEmailSubIDs()
+	if sidErr != nil {
+		emailSubIDs = nil
+	}
+
 	needRestart := false
 	var (
 		atMu    sync.Mutex
@@ -564,10 +586,10 @@ func (s *ClientService) Attach(inboundSvc *InboundService, id int, inboundIds []
 				atMu.Unlock()
 				return
 			}
-			nr, addErr := s.AddInboundClient(inboundSvc, &model.Inbound{
+			nr, addErr := s.addInboundClient(inboundSvc, &model.Inbound{
 				Id:       ibId,
 				Settings: string(settingsPayload),
-			})
+			}, emailSubIDs)
 			atMu.Lock()
 			if addErr != nil && firstErr == nil {
 				firstErr = addErr
