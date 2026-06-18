@@ -415,32 +415,29 @@ func (s *InboundService) GetClients(inbound *model.Inbound) ([]model.Client, err
 func (s *InboundService) GetAllEmails() ([]string, error) {
 	db := database.GetDB()
 	var emails []string
-	query := fmt.Sprintf(
-		"SELECT DISTINCT %s %s",
-		database.JSONFieldText("client.value", "email"),
-		database.JSONClientsFromInbound(),
-	)
-	if err := db.Raw(query).Scan(&emails).Error; err != nil {
+	// clients is the source of truth for which emails exist; its email column is
+	// uniquely indexed, so this is a cheap index scan instead of expanding every
+	// inbound's settings JSON (jsonb_array_elements) on Postgres.
+	if err := db.Model(model.ClientRecord{}).
+		Where("email <> ''").
+		Pluck("email", &emails).Error; err != nil {
 		return nil, err
 	}
 	return emails, nil
 }
 
-// getAllEmailSubIDs returns email→subId. An email seen with two different
-// non-empty subIds is locked (mapped to "") so neither identity can claim it.
+// getAllEmailSubIDs returns email→subId, read from the clients table (the
+// source of truth). The email column is unique there, so the legacy
+// conflict-locking the JSON scan needed is no longer required.
 func (s *InboundService) getAllEmailSubIDs() (map[string]string, error) {
 	db := database.GetDB()
 	var rows []struct {
 		Email string
-		SubID string
+		SubID string `gorm:"column:sub_id"`
 	}
-	query := fmt.Sprintf(
-		"SELECT %s AS email, %s AS sub_id %s",
-		database.JSONFieldText("client.value", "email"),
-		database.JSONFieldText("client.value", "subId"),
-		database.JSONClientsFromInbound(),
-	)
-	if err := db.Raw(query).Scan(&rows).Error; err != nil {
+	if err := db.Model(model.ClientRecord{}).
+		Select("email", "sub_id").
+		Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	result := make(map[string]string, len(rows))
@@ -449,14 +446,7 @@ func (s *InboundService) getAllEmailSubIDs() (map[string]string, error) {
 		if email == "" {
 			continue
 		}
-		subID := r.SubID
-		if existing, ok := result[email]; ok {
-			if existing != subID {
-				result[email] = ""
-			}
-			continue
-		}
-		result[email] = subID
+		result[email] = r.SubID
 	}
 	return result, nil
 }
@@ -1204,22 +1194,25 @@ func (s *InboundService) buildRuntimeInboundForAPI(tx *gorm.DB, inbound *model.I
 	}
 
 	runtimeInbound := *inbound
+	// Only the protocol-level fields are read from the settings JSON; the
+	// clients[] array is rebuilt from the normalized tables (the source of
+	// truth), mirroring GetXrayConfig so a single-inbound hot-apply produces
+	// exactly the same client set a full restart would.
 	settings := map[string]any{}
 	if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
 		return nil, err
 	}
 
-	clients, ok := settings["clients"].([]any)
-	if !ok {
-		return &runtimeInbound, nil
+	dbClients, err := s.clientService.ListForInbound(tx, inbound.Id)
+	if err != nil {
+		return nil, err
 	}
 
 	var clientStats []xray.ClientTraffic
-	err := tx.Model(xray.ClientTraffic{}).
+	if err := tx.Model(xray.ClientTraffic{}).
 		Where("inbound_id = ?", inbound.Id).
 		Select("email", "enable").
-		Find(&clientStats).Error
-	if err != nil {
+		Find(&clientStats).Error; err != nil {
 		return nil, err
 	}
 
@@ -1228,23 +1221,16 @@ func (s *InboundService) buildRuntimeInboundForAPI(tx *gorm.DB, inbound *model.I
 		enableMap[clientTraffic.Email] = clientTraffic.Enable
 	}
 
-	finalClients := make([]any, 0, len(clients))
-	for _, client := range clients {
-		c, ok := client.(map[string]any)
-		if !ok {
+	finalClients := make([]any, 0, len(dbClients))
+	for i := range dbClients {
+		c := dbClients[i]
+		if enable, exists := enableMap[c.Email]; exists && !enable {
 			continue
 		}
-
-		email, _ := c["email"].(string)
-		if enable, exists := enableMap[email]; exists && !enable {
+		if !c.Enable {
 			continue
 		}
-
-		if manualEnable, ok := c["enable"].(bool); ok && !manualEnable {
-			continue
-		}
-
-		finalClients = append(finalClients, c)
+		finalClients = append(finalClients, buildXrayClientEntry(inbound.Protocol, c))
 	}
 
 	settings["clients"] = finalClients

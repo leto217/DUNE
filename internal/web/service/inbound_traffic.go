@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -776,15 +775,14 @@ func (s *InboundService) DelDepletedClients(id int) (err error) {
 	for e := range depletedEmails {
 		emails = append(emails, e)
 	}
+	// clients is the source of truth: the depleted clients were already removed
+	// from the in-scope inbounds and re-synced above, so any email still present
+	// here belongs to an out-of-scope inbound and its traffic row must survive.
 	var stillReferenced []string
-	emailExpr := database.JSONFieldText("client.value", "email")
-	stillQuery := fmt.Sprintf(
-		"SELECT DISTINCT LOWER(%s) %s WHERE LOWER(%s) IN ?",
-		emailExpr,
-		database.JSONClientsFromInbound(),
-		emailExpr,
-	)
-	if err = tx.Raw(stillQuery, emails).Scan(&stillReferenced).Error; err != nil {
+	if err = tx.Table("clients").
+		Select("DISTINCT LOWER(email) AS email").
+		Where("LOWER(email) IN ?", emails).
+		Scan(&stillReferenced).Error; err != nil {
 		return err
 	}
 	stillSet := make(map[string]struct{}, len(stillReferenced))

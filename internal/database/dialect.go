@@ -2,13 +2,6 @@ package database
 
 import "fmt"
 
-func JSONClientsFromInbound() string {
-	if IsPostgres() {
-		return "FROM inbounds, jsonb_array_elements(inbounds.settings::jsonb -> 'clients') AS client(value)"
-	}
-	return "FROM inbounds, JSON_EACH(JSON_EXTRACT(inbounds.settings, '$.clients')) AS client"
-}
-
 func JSONFieldText(expr, key string) string {
 	if IsPostgres() {
 		return fmt.Sprintf("(%s ->> '%s')", expr, key)

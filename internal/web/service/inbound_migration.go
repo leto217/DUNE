@@ -17,12 +17,11 @@ import (
 
 func (s *InboundService) MigrationRemoveOrphanedTraffics() {
 	db := database.GetDB()
-	query := fmt.Sprintf(
-		"DELETE FROM client_traffics WHERE email NOT IN (SELECT %s %s)",
-		database.JSONFieldText("client.value", "email"),
-		database.JSONClientsFromInbound(),
-	)
-	db.Exec(query)
+	// clients is the source of truth for which emails exist. This runs in
+	// MigrateDB after the ClientsTable backfill (runSeeders) and
+	// MigrationRequirements' per-inbound re-sync, so the table is authoritative
+	// by the time we drop traffic rows whose client no longer exists.
+	db.Exec("DELETE FROM client_traffics WHERE email NOT IN (SELECT email FROM clients)")
 }
 
 func (s *InboundService) MigrationRequirements() {

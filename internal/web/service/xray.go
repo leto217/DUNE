@@ -105,6 +105,54 @@ func RemoveIndex(s []any, index int) []any {
 	return append(s[:index], s[index+1:]...)
 }
 
+// buildXrayClientEntry maps a normalized client row (from the clients /
+// client_inbounds tables, the source of truth) to the minimal per-user object
+// xray-core needs for the given protocol. Shared by the full-config builder
+// (GetXrayConfig) and the single-inbound hot-apply builder
+// (buildRuntimeInboundForAPI) so the two never diverge.
+func buildXrayClientEntry(protocol model.Protocol, c model.Client) map[string]any {
+	flow := c.Flow
+	if flow == "xtls-rprx-vision-udp443" {
+		flow = "xtls-rprx-vision"
+	}
+	entry := map[string]any{"email": c.Email}
+	switch protocol {
+	case model.VLESS:
+		if c.ID != "" {
+			entry["id"] = c.ID
+		}
+		if flow != "" {
+			entry["flow"] = flow
+		}
+		if c.Reverse != nil {
+			entry["reverse"] = c.Reverse
+		}
+	case model.VMESS:
+		if c.ID != "" {
+			entry["id"] = c.ID
+		}
+		if c.Security != "" {
+			entry["security"] = c.Security
+		}
+	case model.Trojan:
+		if c.Password != "" {
+			entry["password"] = c.Password
+		}
+		if flow != "" {
+			entry["flow"] = flow
+		}
+	case model.Shadowsocks:
+		if c.Password != "" {
+			entry["password"] = c.Password
+		}
+	case model.Hysteria:
+		if c.Auth != "" {
+			entry["auth"] = c.Auth
+		}
+	}
+	return entry
+}
+
 // GetXrayConfig retrieves and builds the Xray configuration from settings and inbounds.
 func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 	templateConfig, err := s.settingService.GetXrayConfigTemplate()
@@ -160,46 +208,7 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 			if !c.Enable {
 				continue
 			}
-			flow := c.Flow
-			if flow == "xtls-rprx-vision-udp443" {
-				flow = "xtls-rprx-vision"
-			}
-			entry := map[string]any{"email": c.Email}
-			switch inbound.Protocol {
-			case model.VLESS:
-				if c.ID != "" {
-					entry["id"] = c.ID
-				}
-				if flow != "" {
-					entry["flow"] = flow
-				}
-				if c.Reverse != nil {
-					entry["reverse"] = c.Reverse
-				}
-			case model.VMESS:
-				if c.ID != "" {
-					entry["id"] = c.ID
-				}
-				if c.Security != "" {
-					entry["security"] = c.Security
-				}
-			case model.Trojan:
-				if c.Password != "" {
-					entry["password"] = c.Password
-				}
-				if flow != "" {
-					entry["flow"] = flow
-				}
-			case model.Shadowsocks:
-				if c.Password != "" {
-					entry["password"] = c.Password
-				}
-			case model.Hysteria:
-				if c.Auth != "" {
-					entry["auth"] = c.Auth
-				}
-			}
-			finalClients = append(finalClients, entry)
+			finalClients = append(finalClients, buildXrayClientEntry(inbound.Protocol, c))
 		}
 
 		_, hadClients := settings["clients"]

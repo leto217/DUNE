@@ -128,12 +128,13 @@ func (s *InboundService) emailUsedByOtherInbounds(email string, exceptInboundId 
 	}
 	db := database.GetDB()
 	var count int64
-	query := fmt.Sprintf(
-		"SELECT COUNT(*) %s WHERE inbounds.id != ? AND LOWER(%s) = LOWER(?)",
-		database.JSONClientsFromInbound(),
-		database.JSONFieldText("client.value", "email"),
-	)
-	if err := db.Raw(query, exceptInboundId, email).Scan(&count).Error; err != nil {
+	// client_inbounds is the source of truth for which inbound an email is
+	// attached to; the join hits indexed columns instead of scanning settings
+	// JSON.
+	if err := db.Table("clients").
+		Joins("JOIN client_inbounds ON client_inbounds.client_id = clients.id").
+		Where("client_inbounds.inbound_id <> ? AND LOWER(clients.email) = LOWER(?)", exceptInboundId, email).
+		Count(&count).Error; err != nil {
 		return false, err
 	}
 	return count > 0, nil
@@ -153,12 +154,11 @@ func (s *InboundService) emailsUsedByOtherInbounds(emails []string, exceptInboun
 	}
 	db := database.GetDB()
 	var rows []string
-	query := fmt.Sprintf(
-		"SELECT DISTINCT LOWER(%s) %s WHERE inbounds.id != ?",
-		database.JSONFieldText("client.value", "email"),
-		database.JSONClientsFromInbound(),
-	)
-	if err := db.Raw(query, exceptInboundId).Scan(&rows).Error; err != nil {
+	if err := db.Table("clients").
+		Select("DISTINCT LOWER(clients.email) AS email").
+		Joins("JOIN client_inbounds ON client_inbounds.client_id = clients.id").
+		Where("client_inbounds.inbound_id <> ?", exceptInboundId).
+		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	for _, e := range rows {
