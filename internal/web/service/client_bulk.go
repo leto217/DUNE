@@ -556,7 +556,7 @@ func (s *ClientService) bulkAdjustInboundClients(
 	}
 
 	settings["clients"] = interfaceClients
-	newSettings, err := json.MarshalIndent(settings, "", "  ")
+	newSettings, err := json.Marshal(settings)
 	if err != nil {
 		for email := range foundEmails {
 			res.perEmailSkipped[email] = err.Error()
@@ -595,11 +595,19 @@ func (s *ClientService) bulkAdjustInboundClients(
 		if err := tx.Save(oldInbound).Error; err != nil {
 			return err
 		}
+		// Only the adjusted clients changed; upsert just their records + links
+		// incrementally instead of rebuilding the inbound's whole link set.
 		finalClients, gcErr := inboundSvc.GetClients(oldInbound)
 		if gcErr != nil {
 			return gcErr
 		}
-		return s.SyncInbound(tx, inboundId, finalClients)
+		adjusted := make([]model.Client, 0, len(foundEmails))
+		for i := range finalClients {
+			if foundEmails[strings.TrimSpace(finalClients[i].Email)] {
+				adjusted = append(adjusted, finalClients[i])
+			}
+		}
+		return s.AttachClientsToInbound(tx, inboundId, adjusted)
 	})
 	if txErr != nil {
 		for email := range foundEmails {
@@ -853,7 +861,7 @@ func (s *ClientService) bulkDelInboundClients(
 		newClients = []any{}
 	}
 	settings["clients"] = newClients
-	newSettings, err := json.MarshalIndent(settings, "", "  ")
+	newSettings, err := json.Marshal(settings)
 	if err != nil {
 		for email := range foundEmails {
 			if _, skip := res.perEmailSkipped[email]; !skip {
@@ -973,11 +981,14 @@ func (s *ClientService) bulkDelInboundClients(
 		if err := tx.Save(oldInbound).Error; err != nil {
 			return err
 		}
-		finalClients, err := inboundSvc.GetClients(oldInbound)
-		if err != nil {
-			return err
+		// Detach only the removed emails' links instead of rebuilding the
+		// inbound's whole link set (O(total clients)).
+		for email := range foundEmails {
+			if err := s.DetachClientFromInbound(tx, inboundId, email); err != nil {
+				return err
+			}
 		}
-		return s.SyncInbound(tx, inboundId, finalClients)
+		return nil
 	})
 	if txErr != nil {
 		for email := range foundEmails {

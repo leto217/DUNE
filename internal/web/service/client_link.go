@@ -7,15 +7,17 @@ import (
 	"github.com/gary/dune/internal/database/model"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-func (s *ClientService) SyncInbound(tx *gorm.DB, inboundId int, clients []model.Client) error {
+// upsertClientRecords find-or-creates the client_records row for every client
+// (keyed by email), merging the incoming fields the same way SyncInbound does,
+// and returns email→record-id. It never touches client_inbounds, so it is the
+// shared record half of both the full SyncInbound rebuild and the incremental
+// single-client paths.
+func (s *ClientService) upsertClientRecords(tx *gorm.DB, clients []model.Client) (map[string]int, error) {
 	if tx == nil {
 		tx = database.GetDB()
-	}
-
-	if err := tx.Where("inbound_id = ?", inboundId).Delete(&model.ClientInbound{}).Error; err != nil {
-		return err
 	}
 
 	emails := make([]string, 0, len(clients))
@@ -38,7 +40,7 @@ func (s *ClientService) SyncInbound(tx *gorm.DB, inboundId int, clients []model.
 		end := min(start+selectChunk, len(emails))
 		var rows []model.ClientRecord
 		if err := tx.Where("email IN ?", emails[start:end]).Find(&rows).Error; err != nil {
-			return err
+			return nil, err
 		}
 		for i := range rows {
 			r := rows[i]
@@ -105,22 +107,44 @@ func (s *ClientService) SyncInbound(tx *gorm.DB, inboundId int, clients []model.
 			continue
 		}
 		if err := tx.Save(row).Error; err != nil {
-			return err
+			return nil, err
 		}
 		if err := tx.Model(&model.ClientRecord{}).
 			Where("id = ?", row.Id).
 			UpdateColumn("updated_at", preservedUpdatedAt).Error; err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	if len(toCreate) > 0 {
 		if err := tx.CreateInBatches(toCreate, 200).Error; err != nil {
-			return err
+			return nil, err
 		}
 		for _, rec := range toCreate {
 			idByEmail[rec.Email] = rec.Id
 		}
+	}
+	return idByEmail, nil
+}
+
+// SyncInbound is the authoritative reconcile of one inbound's client_inbounds
+// rows: it rebuilds the whole link set from the supplied client list. Its cost
+// is O(total clients in the inbound), so single-/few-client mutations should
+// prefer the incremental helpers (AttachClientsToInbound / DetachClientFrom
+// Inbound) which touch only the changed rows. Keep SyncInbound for bulk writes,
+// inbound updates, migrations, and node reconcile where the full list changes.
+func (s *ClientService) SyncInbound(tx *gorm.DB, inboundId int, clients []model.Client) error {
+	if tx == nil {
+		tx = database.GetDB()
+	}
+
+	if err := tx.Where("inbound_id = ?", inboundId).Delete(&model.ClientInbound{}).Error; err != nil {
+		return err
+	}
+
+	idByEmail, err := s.upsertClientRecords(tx, clients)
+	if err != nil {
+		return err
 	}
 
 	links := make([]model.ClientInbound, 0, len(clients))
@@ -150,6 +174,75 @@ func (s *ClientService) SyncInbound(tx *gorm.DB, inboundId int, clients []model.
 		}
 	}
 	return nil
+}
+
+// AttachClientsToInbound incrementally attaches the given clients to inboundId
+// without rebuilding the inbound's whole link set. It upserts each client's
+// record and the single (client,inbound) link row, leaving every other client
+// of the inbound untouched. Use it on the add path where SyncInbound's full
+// delete+reinsert would be O(total clients) per add. The inbound's existing
+// link set must already be consistent (it is, since every mutation keeps it so,
+// and reconcile paths still run the full SyncInbound).
+func (s *ClientService) AttachClientsToInbound(tx *gorm.DB, inboundId int, clients []model.Client) error {
+	if tx == nil {
+		tx = database.GetDB()
+	}
+	if len(clients) == 0 {
+		return nil
+	}
+
+	idByEmail, err := s.upsertClientRecords(tx, clients)
+	if err != nil {
+		return err
+	}
+
+	links := make([]model.ClientInbound, 0, len(clients))
+	linked := make(map[int]struct{}, len(clients))
+	for i := range clients {
+		email := strings.TrimSpace(clients[i].Email)
+		if email == "" {
+			continue
+		}
+		id, ok := idByEmail[email]
+		if !ok {
+			continue
+		}
+		if _, dup := linked[id]; dup {
+			continue
+		}
+		linked[id] = struct{}{}
+		links = append(links, model.ClientInbound{
+			ClientId:     id,
+			InboundId:    inboundId,
+			FlowOverride: clients[i].Flow,
+		})
+	}
+	if len(links) == 0 {
+		return nil
+	}
+	// A re-add (retry, or a row left by an earlier op) must refresh the stored
+	// flow override rather than fail on the composite PK.
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "client_id"}, {Name: "inbound_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"flow_override"}),
+	}).CreateInBatches(links, 200).Error
+}
+
+// DetachClientFromInbound incrementally removes a single client's link from
+// inboundId, identified by email, without rebuilding the inbound's whole link
+// set. The client_records row itself is left intact (callers handle record
+// deletion separately, exactly as SyncInbound did — it only ever rebuilt links).
+func (s *ClientService) DetachClientFromInbound(tx *gorm.DB, inboundId int, email string) error {
+	if tx == nil {
+		tx = database.GetDB()
+	}
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return nil
+	}
+	clientIDs := tx.Model(&model.ClientRecord{}).Select("id").Where("email = ?", email)
+	return tx.Where("inbound_id = ? AND client_id IN (?)", inboundId, clientIDs).
+		Delete(&model.ClientInbound{}).Error
 }
 
 func (s *ClientService) DetachInbound(tx *gorm.DB, inboundId int) error {

@@ -82,7 +82,7 @@ func (s *ClientService) delInboundClients(inboundSvc *InboundService, inboundId 
 		newClients = []any{}
 	}
 	settings["clients"] = newClients
-	newSettings, err := json.MarshalIndent(settings, "", "  ")
+	newSettings, err := json.Marshal(settings)
 	if err != nil {
 		return false, err
 	}
@@ -140,12 +140,12 @@ func (s *ClientService) delInboundClients(inboundSvc *InboundService, inboundId 
 	if err := db.Save(oldInbound).Error; err != nil {
 		return needRestart, err
 	}
-	finalClients, gcErr := inboundSvc.GetClients(oldInbound)
-	if gcErr != nil {
-		return needRestart, gcErr
-	}
-	if err := s.SyncInbound(db, inboundId, finalClients); err != nil {
-		return needRestart, err
+	// Detach only the removed emails' links instead of rebuilding the inbound's
+	// entire link set (O(total clients)).
+	for _, r := range removed {
+		if err := s.DetachClientFromInbound(db, inboundId, r.email); err != nil {
+			return needRestart, err
+		}
 	}
 
 	if oldInbound.NodeID != nil && len(remoteDetachEmails) > 0 {
@@ -305,7 +305,7 @@ func (s *ClientService) addInboundClient(inboundSvc *InboundService, data *model
 
 	oldSettings["clients"] = oldClients
 
-	newSettings, err := json.MarshalIndent(oldSettings, "", "  ")
+	newSettings, err := json.Marshal(oldSettings)
 	if err != nil {
 		return false, err
 	}
@@ -325,12 +325,28 @@ func (s *ClientService) addInboundClient(inboundSvc *InboundService, data *model
 		tx.Rollback()
 		return false, err
 	}
+	// Attach only the newly added clients incrementally instead of rebuilding
+	// the inbound's entire link set (O(total clients) per add). finalClients is
+	// the merged settings so the new entries carry their generated subId; filter
+	// it down to just the added emails for the incremental attach.
 	finalClients, gcErr := inboundSvc.GetClients(oldInbound)
 	if gcErr != nil {
 		tx.Rollback()
 		return false, gcErr
 	}
-	if err = s.SyncInbound(tx, oldInbound.Id, finalClients); err != nil {
+	newEmails := make(map[string]struct{}, len(clients))
+	for _, c := range clients {
+		if e := strings.TrimSpace(c.Email); e != "" {
+			newEmails[e] = struct{}{}
+		}
+	}
+	addedClients := make([]model.Client, 0, len(newEmails))
+	for i := range finalClients {
+		if _, ok := newEmails[strings.TrimSpace(finalClients[i].Email)]; ok {
+			addedClients = append(addedClients, finalClients[i])
+		}
+	}
+	if err = s.AttachClientsToInbound(tx, oldInbound.Id, addedClients); err != nil {
 		tx.Rollback()
 		return false, err
 	}
@@ -543,7 +559,7 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 		}
 	}
 
-	newSettings, err := json.MarshalIndent(oldSettings, "", "  ")
+	newSettings, err := json.Marshal(oldSettings)
 	if err != nil {
 		return false, err
 	}
@@ -610,12 +626,11 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 		tx.Rollback()
 		return false, err
 	}
-	finalClients, gcErr := inboundSvc.GetClients(oldInbound)
-	if gcErr != nil {
-		tx.Rollback()
-		return false, gcErr
-	}
-	if err = s.SyncInbound(tx, oldInbound.Id, finalClients); err != nil {
+	// Only the edited client changed; upsert its record + link incrementally
+	// instead of rebuilding the inbound's entire link set. The record id is
+	// stable across an email rename (Update renames the row in place), so the
+	// existing link is refreshed via OnConflict rather than re-created.
+	if err = s.AttachClientsToInbound(tx, oldInbound.Id, clients[:1]); err != nil {
 		tx.Rollback()
 		return false, err
 	}
@@ -747,7 +762,7 @@ func (s *ClientService) DelInboundClientByEmail(inboundSvc *InboundService, inbo
 		newClients = []any{}
 	}
 	settings["clients"] = newClients
-	newSettings, err := json.MarshalIndent(settings, "", "  ")
+	newSettings, err := json.Marshal(settings)
 	if err != nil {
 		return false, err
 	}
@@ -829,11 +844,9 @@ func (s *ClientService) DelInboundClientByEmail(inboundSvc *InboundService, inbo
 	if err := db.Save(oldInbound).Error; err != nil {
 		return false, err
 	}
-	finalClients, gcErr := inboundSvc.GetClients(oldInbound)
-	if gcErr != nil {
-		return false, gcErr
-	}
-	if err := s.SyncInbound(db, inboundId, finalClients); err != nil {
+	// Detach only the removed email's link instead of rebuilding the inbound's
+	// entire link set (O(total clients)).
+	if err := s.DetachClientFromInbound(db, inboundId, email); err != nil {
 		return false, err
 	}
 	if markDirty && oldInbound.NodeID != nil {
@@ -888,7 +901,7 @@ func (s *ClientService) SetClientTelegramUserID(inboundSvc *InboundService, traf
 		}
 	}
 	settings["clients"] = newClients
-	modifiedSettings, err := json.MarshalIndent(settings, "", "  ")
+	modifiedSettings, err := json.Marshal(settings)
 	if err != nil {
 		return false, err
 	}
@@ -968,7 +981,7 @@ func (s *ClientService) ToggleClientEnableByEmail(inboundSvc *InboundService, cl
 		}
 	}
 	settings["clients"] = newClients
-	modifiedSettings, err := json.MarshalIndent(settings, "", "  ")
+	modifiedSettings, err := json.Marshal(settings)
 	if err != nil {
 		return false, false, err
 	}
@@ -1060,7 +1073,7 @@ func (s *ClientService) applyClientFieldByEmail(inboundSvc *InboundService, clie
 		}
 		found = true
 		settings["clients"] = newClients
-		modifiedSettings, mErr := json.MarshalIndent(settings, "", "  ")
+		modifiedSettings, mErr := json.Marshal(settings)
 		if mErr != nil {
 			return needRestart, mErr
 		}
