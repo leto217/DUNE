@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gary/dune/internal/database"
@@ -110,7 +112,53 @@ func (s *ClientService) BulkResetTraffic(inboundSvc *InboundService, emails []st
 	if err != nil {
 		return 0, err
 	}
+
+	s.propagateBulkResetTraffic(inboundSvc, cleanEmails)
 	return affected, nil
+}
+
+func (s *ClientService) propagateBulkResetTraffic(inboundSvc *InboundService, emails []string) {
+	if len(emails) == 0 {
+		return
+	}
+	type nodeEmail struct {
+		NodeID int
+		Email  string
+	}
+	var rows []nodeEmail
+	db := database.GetDB()
+	if err := db.Table("client_inbounds").
+		Select("DISTINCT inbounds.node_id AS node_id, client_records.email AS email").
+		Joins("JOIN inbounds ON inbounds.id = client_inbounds.inbound_id").
+		Joins("JOIN client_records ON client_records.id = client_inbounds.client_id").
+		Where("client_records.email IN ? AND inbounds.node_id IS NOT NULL", emails).
+		Scan(&rows).Error; err != nil {
+		logger.Warning("bulk reset traffic: load remote nodes failed:", err)
+		return
+	}
+	if len(rows) == 0 {
+		return
+	}
+	emailsByNode := make(map[int][]string, len(rows))
+	for _, row := range rows {
+		emailsByNode[row.NodeID] = append(emailsByNode[row.NodeID], row.Email)
+	}
+	var wg sync.WaitGroup
+	for nodeID, nodeEmails := range emailsByNode {
+		wg.Add(1)
+		go func(nodeID int, nodeEmails []string) {
+			defer wg.Done()
+			rt, err := inboundSvc.runtimeFor(&model.Inbound{NodeID: &nodeID})
+			if err != nil {
+				logger.Warning("bulk reset traffic: runtime for node", nodeID, "failed:", err)
+				return
+			}
+			if err := rt.ResetClientsTraffic(context.Background(), nil, nodeEmails); err != nil {
+				logger.Warning("bulk reset traffic: remote propagation to node", nodeID, "failed:", err)
+			}
+		}(nodeID, nodeEmails)
+	}
+	wg.Wait()
 }
 
 func (s *ClientService) ResetAllClientTraffics(inboundSvc *InboundService, id int) error {

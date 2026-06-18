@@ -475,7 +475,7 @@ export const sections: readonly Section[] = [
     id: 'clients',
     title: 'Clients',
     description:
-      'Manage clients as first-class entities that can be attached to one or more inbounds. A single client row drives the settings.clients entry in every inbound it belongs to. Endpoints live under /panel/api/clients.',
+      'Manage clients as first-class entities that can be attached to one or more inbounds. A single client row drives the settings.clients entry in every inbound it belongs to. Endpoints live under /panel/api/clients.\n\nWhen a central panel manages remote nodes, client changes on node-assigned inbounds are pushed to each node over its API token. Prefer the bulk endpoints below for large batches — the panel groups work by inbound, runs different inbounds in parallel, and maps each batch to a single bulk HTTP call per remote node (bulkCreate, bulkDetach, bulkAdjust, bulkResetTraffic) instead of one request per client.',
     endpoints: [
       {
         method: 'GET',
@@ -513,7 +513,7 @@ export const sections: readonly Section[] = [
       {
         method: 'POST',
         path: '/panel/api/clients/add',
-        summary: 'Create a new client and attach it to one or more inbounds in a single call. Body is JSON. Per-protocol secrets (UUID for VLESS/VMess, password for Trojan/Shadowsocks, auth for Hysteria) are generated server-side when omitted, so callers can send only the universal fields.',
+        summary: 'Create a new client and attach it to one or more inbounds in a single call. Body is JSON. Per-protocol secrets (UUID for VLESS/VMess, password for Trojan/Shadowsocks, auth for Hysteria) are generated server-side when omitted, so callers can send only the universal fields. When inboundIds span multiple remote nodes, each node is updated in parallel.',
         params: [
           { name: 'client', in: 'body (json)', type: 'object', desc: 'Client fields: email, subId, id (uuid), password, auth, flow, totalGB, expiryTime, limitIp, tgId (numeric Telegram user ID, 0 = none), comment, enable.' },
           { name: 'inboundIds', in: 'body (json)', type: 'integer[]', desc: 'Inbound IDs to attach the client to. At least one required.' },
@@ -544,7 +544,7 @@ export const sections: readonly Section[] = [
       {
         method: 'POST',
         path: '/panel/api/clients/:email/attach',
-        summary: 'Attach an existing client to one or more additional inbounds. Body is JSON.',
+        summary: 'Attach an existing client to one or more additional inbounds. Body is JSON. When inboundIds span multiple remote nodes, each node is updated in parallel.',
         params: [
           { name: 'email', in: 'path', type: 'string', desc: 'Client email (unique identifier).' },
           { name: 'inboundIds', in: 'body (json)', type: 'integer[]', desc: 'Inbound IDs to attach.' },
@@ -589,21 +589,21 @@ export const sections: readonly Section[] = [
       {
         method: 'POST',
         path: '/panel/api/clients/bulkAdjust',
-        summary: 'Shift expiry and/or traffic quota for many clients in one call. addDays/addBytes may be negative. Clients with unlimited expiry (expiryTime=0) or unlimited traffic (totalGB=0) are skipped for the corresponding field — bulk extend never converts unlimited to limited. Returns the adjusted count and per-email skip reasons.',
+        summary: 'Shift expiry and/or traffic quota for many clients in one call. addDays/addBytes may be negative. Clients with unlimited expiry (expiryTime=0) or unlimited traffic (totalGB=0) are skipped for the corresponding field — bulk extend never converts unlimited to limited. Work is grouped by inbound (one settings rewrite per inbound); inbounds on different nodes are processed in parallel. Remote node inbounds receive a single bulkAdjust call per node. Returns the adjusted count and per-email skip reasons.',
         body: '{\n  "emails": ["alice", "bob"],\n  "addDays": 30,\n  "addBytes": 53687091200\n}',
         response: '{\n  "success": true,\n  "obj": {\n    "adjusted": 2,\n    "skipped": [\n      { "email": "carol", "reason": "unlimited expiry" }\n    ]\n  }\n}',
       },
       {
         method: 'POST',
         path: '/panel/api/clients/bulkDel',
-        summary: 'Delete many clients in one call. The server processes the list sequentially so each delete sees the committed state of the previous one — avoids the race the per-email fan-out had on the panel side. Pass keepTraffic=true to retain the xray_client_traffic rows after deletion.',
+        summary: 'Delete many clients in one call. Groups emails by inbound and performs one read-modify-write per inbound; inbounds on different nodes run in parallel. Remote node inbounds receive a single bulkDetach call per inbound instead of one detach per email. Pass keepTraffic=true to retain the xray_client_traffic rows after deletion.',
         body: '{\n  "emails": ["alice", "bob"],\n  "keepTraffic": false\n}',
         response: '{\n  "success": true,\n  "obj": {\n    "deleted": 2,\n    "skipped": [\n      { "email": "carol", "reason": "client not found" }\n    ]\n  }\n}',
       },
       {
         method: 'POST',
         path: '/panel/api/clients/bulkCreate',
-        summary: 'Create many clients in one call. Body is a JSON array of {client, inboundIds} payloads — the same shape /add accepts. Items are processed sequentially; per-email skip reasons are returned for items that fail (e.g., duplicate email). Triggers a single Xray restart at the end if any inbound was running.',
+        summary: 'Create many clients in one call. Body is a JSON array of {client, inboundIds} payloads — the same shape /add accepts. Items are validated upfront, grouped by target inbound, and applied in parallel across inbounds. Each remote-node inbound is synced with one bulkCreate HTTP call carrying every new client for that inbound. Per-email skip reasons are returned for items that fail (e.g., duplicate email). Triggers a single Xray restart at the end if any local inbound was running. Recommended when provisioning many users across multiple nodes from a central panel.',
         body: '[\n  {\n    "client": {\n      "email": "alice@example.com",\n      "totalGB": 53687091200,\n      "expiryTime": 0,\n      "enable": true\n    },\n    "inboundIds": [7]\n  },\n  {\n    "client": {\n      "email": "bob@example.com",\n      "totalGB": 53687091200,\n      "expiryTime": 0,\n      "enable": true\n    },\n    "inboundIds": [7, 9]\n  }\n]',
         response: '{\n  "success": true,\n  "obj": {\n    "created": 2,\n    "skipped": [\n      { "email": "alice@example.com", "reason": "email already in use" }\n    ]\n  }\n}',
       },
@@ -624,7 +624,7 @@ export const sections: readonly Section[] = [
       {
         method: 'POST',
         path: '/panel/api/clients/bulkAttach',
-        summary: 'Attach many existing clients to many inbounds in one call. Each client keeps its identity (email/UUID/password/subId) and a shared traffic row; all clients are added to a target inbound in a single AddInboundClient call. Clients already present on a target are reported under skipped. Returns per-email attached/skipped/errors lists and triggers a single Xray restart if any target inbound was running.',
+        summary: 'Attach many existing clients to many inbounds in one call. Each client keeps its identity (email/UUID/password/subId) and a shared traffic row; all clients targeting the same inbound are added in a single AddInboundClient call. Different inbounds are processed in parallel; remote nodes receive one bulkCreate call per inbound. Clients already present on a target are reported under skipped. Returns per-email attached/skipped/errors lists and triggers a single Xray restart if any target inbound was running.',
         params: [
           { name: 'emails', in: 'body (json)', type: 'array', desc: 'Emails of existing clients to attach.' },
           { name: 'inboundIds', in: 'body (json)', type: 'integer[]', desc: 'Target inbound IDs to attach every client to.' },
@@ -635,7 +635,7 @@ export const sections: readonly Section[] = [
       {
         method: 'POST',
         path: '/panel/api/clients/bulkDetach',
-        summary: 'Mirror of bulkAttach: detach many existing clients from many inbounds in one call. For each email, intersects the client\'s current inbounds with the requested set and detaches from those only; (email, inbound) pairs where the client is not currently attached are silently no-ops. Emails not attached to any of the requested inbounds are reported under skipped. Client records are kept even if they become orphaned — use bulkDel for full removal. Returns per-email detached/skipped/errors lists and triggers a single Xray restart if any target inbound was running.',
+        summary: 'Mirror of bulkAttach: detach many existing clients from many inbounds in one call. For each email, intersects the client\'s current inbounds with the requested set and detaches from those only; (email, inbound) pairs where the client is not currently attached are silently no-ops. Different inbounds are processed in parallel; remote nodes receive one bulkDetach call per inbound. Emails not attached to any of the requested inbounds are reported under skipped. Client records are kept even if they become orphaned — use bulkDel for full removal. Returns per-email detached/skipped/errors lists and triggers a single Xray restart if any target inbound was running.',
         params: [
           { name: 'emails', in: 'body (json)', type: 'array', desc: 'Emails of existing clients to detach.' },
           { name: 'inboundIds', in: 'body (json)', type: 'integer[]', desc: 'Inbound IDs to detach the clients from.' },
@@ -646,7 +646,7 @@ export const sections: readonly Section[] = [
       {
         method: 'POST',
         path: '/panel/api/clients/bulkResetTraffic',
-        summary: 'Zero up/down counters for many clients in one call. Loops the single-reset path so each client is re-enabled across its attached inbounds and pushed to Xray/remote nodes. Returns the count of successfully reset clients.',
+        summary: 'Zero up/down counters for many clients in one call. Updates traffic rows in batched DB writes, re-enables disabled clients, then propagates to each hosting remote node with one bulkResetTraffic call per node (grouped by node_id). Returns the count of successfully reset clients.',
         body: '{\n  "emails": ["alice", "bob"]\n}',
         response: '{\n  "success": true,\n  "obj": {\n    "affected": 2\n  }\n}',
       },
@@ -787,7 +787,7 @@ export const sections: readonly Section[] = [
     id: 'nodes',
     title: 'Nodes',
     description:
-      'Manage remote dune panels acting as nodes for a central panel. All endpoints under /panel/api/nodes.',
+      'Manage remote dune panels acting as nodes for a central panel. All endpoints under /panel/api/nodes.\n\nA central panel pushes inbound and client changes to registered nodes using the same /panel/api/* surface documented here, authenticated with each node\'s API token (or mTLS client certificate). Client batches use the bulk client endpoints (bulkCreate, bulkDetach, bulkAdjust, bulkResetTraffic) — one HTTP request per inbound or node instead of per client — so large provisioning jobs complete within normal HTTP timeouts.',
     endpoints: [
       {
         method: 'GET',

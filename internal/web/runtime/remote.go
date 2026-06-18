@@ -22,7 +22,10 @@ import (
 	"github.com/gary/dune/internal/xray"
 )
 
-const remoteHTTPTimeout = 10 * time.Second
+const (
+	remoteHTTPTimeout     = 10 * time.Second
+	remoteHTTPBulkTimeout = 2 * time.Minute
+)
 
 // zstdMinBodyBytes is the smallest body worth compressing; below it the framing
 // overhead can outweigh the savings.
@@ -125,6 +128,10 @@ func (r *Remote) baseURL() (string, error) {
 }
 
 func (r *Remote) do(ctx context.Context, method, path string, body any) (*envelope, error) {
+	return r.doWithTimeout(ctx, method, path, body, remoteHTTPTimeout)
+}
+
+func (r *Remote) doWithTimeout(ctx context.Context, method, path string, body any, timeout time.Duration) (*envelope, error) {
 	// mtls nodes authenticate via the client certificate, so a bearer token is
 	// optional for them; every other mode still requires one.
 	if r.node.ApiToken == "" && r.node.TlsVerifyMode != "mtls" {
@@ -172,7 +179,7 @@ func (r *Remote) do(ctx context.Context, method, path string, body any) (*envelo
 		reqBody = bytes.NewReader(bodyBytes)
 	}
 
-	cctx, cancel := context.WithTimeout(netsafe.ContextWithAllowPrivate(ctx, r.node.AllowPrivateAddress), remoteHTTPTimeout)
+	cctx, cancel := context.WithTimeout(netsafe.ContextWithAllowPrivate(ctx, r.node.AllowPrivateAddress), timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(cctx, method, target, reqBody)
 	if err != nil {
@@ -373,29 +380,74 @@ func (r *Remote) RemoveUser(ctx context.Context, ib *model.Inbound, _ string) er
 }
 
 func (r *Remote) AddClient(ctx context.Context, ib *model.Inbound, client model.Client) error {
+	return r.AddClients(ctx, ib, []model.Client{client})
+}
+
+func (r *Remote) AddClients(ctx context.Context, ib *model.Inbound, clients []model.Client) error {
+	if len(clients) == 0 {
+		return nil
+	}
 	id, err := r.resolveRemoteID(ctx, ib.Tag)
 	if err != nil {
-		return fmt.Errorf("remote AddClient: resolve tag %q: %w", ib.Tag, err)
+		return fmt.Errorf("remote AddClients: resolve tag %q: %w", ib.Tag, err)
 	}
-	payload := map[string]any{
-		"client":     client,
-		"inboundIds": []int{id},
+	if len(clients) == 1 {
+		payload := map[string]any{
+			"client":     clients[0],
+			"inboundIds": []int{id},
+		}
+		if _, err := r.do(ctx, http.MethodPost, "panel/api/clients/add", payload); err != nil {
+			return err
+		}
+		return nil
 	}
-	if _, err := r.do(ctx, http.MethodPost, "panel/api/clients/add", payload); err != nil {
+	payloads := make([]map[string]any, 0, len(clients))
+	for _, client := range clients {
+		payloads = append(payloads, map[string]any{
+			"client":     client,
+			"inboundIds": []int{id},
+		})
+	}
+	if _, err := r.doWithTimeout(ctx, http.MethodPost, "panel/api/clients/bulkCreate", payloads, remoteHTTPBulkTimeout); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (r *Remote) DeleteUser(ctx context.Context, ib *model.Inbound, email string) error {
-	if email == "" {
+	return r.DeleteUsers(ctx, ib, []string{email})
+}
+
+func (r *Remote) DeleteUsers(ctx context.Context, ib *model.Inbound, emails []string) error {
+	clean := make([]string, 0, len(emails))
+	for _, email := range emails {
+		if email != "" {
+			clean = append(clean, email)
+		}
+	}
+	if len(clean) == 0 {
 		return nil
+	}
+	if len(clean) == 1 {
+		return r.deleteUserOne(ctx, ib, clean[0])
 	}
 	id, err := r.resolveRemoteID(ctx, ib.Tag)
 	if err != nil {
-		// Can't confirm the delete reached the node — surface it so the caller
-		// marks the node dirty and a reconcile converges, instead of silently
-		// dropping the delete and letting the next snapshot resurrect the client.
+		return fmt.Errorf("remote DeleteUsers: resolve tag %q: %w", ib.Tag, err)
+	}
+	body := map[string]any{
+		"emails":     clean,
+		"inboundIds": []int{id},
+	}
+	if _, err := r.doWithTimeout(ctx, http.MethodPost, "panel/api/clients/bulkDetach", body, remoteHTTPBulkTimeout); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *Remote) deleteUserOne(ctx context.Context, ib *model.Inbound, email string) error {
+	id, err := r.resolveRemoteID(ctx, ib.Tag)
+	if err != nil {
 		return fmt.Errorf("remote DeleteUser: resolve tag %q: %w", ib.Tag, err)
 	}
 	body := map[string]any{"inboundIds": []int{id}}
@@ -421,6 +473,31 @@ func (r *Remote) UpdateUser(ctx context.Context, ib *model.Inbound, oldEmail str
 	path := "panel/api/clients/update/" + url.PathEscape(oldEmail) +
 		"?inboundIds=" + strconv.Itoa(id)
 	if _, err := r.do(ctx, http.MethodPost, path, payload); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *Remote) AdjustClients(ctx context.Context, ib *model.Inbound, emails []string, addDays int, addBytes int64) error {
+	clean := make([]string, 0, len(emails))
+	for _, email := range emails {
+		if email != "" {
+			clean = append(clean, email)
+		}
+	}
+	if len(clean) == 0 || (addDays == 0 && addBytes == 0) {
+		return nil
+	}
+	body := map[string]any{
+		"emails":   clean,
+		"addDays":  addDays,
+		"addBytes": addBytes,
+	}
+	timeout := remoteHTTPTimeout
+	if len(clean) > 1 {
+		timeout = remoteHTTPBulkTimeout
+	}
+	if _, err := r.doWithTimeout(ctx, http.MethodPost, "panel/api/clients/bulkAdjust", body, timeout); err != nil {
 		return err
 	}
 	return nil
@@ -479,10 +556,30 @@ func (r *Remote) GetDescendants(ctx context.Context) ([]model.NodeSummary, error
 	return out, nil
 }
 
-func (r *Remote) ResetClientTraffic(ctx context.Context, _ *model.Inbound, email string) error {
-	_, err := r.do(ctx, http.MethodPost,
-		"panel/api/clients/resetTraffic/"+url.PathEscape(email), nil)
-	return err
+func (r *Remote) ResetClientTraffic(ctx context.Context, ib *model.Inbound, email string) error {
+	return r.ResetClientsTraffic(ctx, ib, []string{email})
+}
+
+func (r *Remote) ResetClientsTraffic(ctx context.Context, _ *model.Inbound, emails []string) error {
+	clean := make([]string, 0, len(emails))
+	for _, email := range emails {
+		if email != "" {
+			clean = append(clean, email)
+		}
+	}
+	if len(clean) == 0 {
+		return nil
+	}
+	if len(clean) == 1 {
+		_, err := r.do(ctx, http.MethodPost,
+			"panel/api/clients/resetTraffic/"+url.PathEscape(clean[0]), nil)
+		return err
+	}
+	body := map[string]any{"emails": clean}
+	if _, err := r.doWithTimeout(ctx, http.MethodPost, "panel/api/clients/bulkResetTraffic", body, remoteHTTPBulkTimeout); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Remote) ResetAllTraffics(ctx context.Context) error {
@@ -510,36 +607,73 @@ type TrafficSnapshot struct {
 func (r *Remote) FetchTrafficSnapshot(ctx context.Context) (*TrafficSnapshot, error) {
 	snap := &TrafficSnapshot{LastOnlineMap: map[string]int64{}}
 
-	envList, err := r.do(ctx, http.MethodGet, "panel/api/inbounds/list", nil)
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(envList.Obj, &snap.Inbounds); err != nil {
-		return nil, fmt.Errorf("decode inbound list: %w", err)
-	}
+	var (
+		fetchMu sync.Mutex
+		fetchWg sync.WaitGroup
+		listErr error
+	)
+	fetchWg.Add(1)
+	go func() {
+		defer fetchWg.Done()
+		envList, err := r.do(ctx, http.MethodGet, "panel/api/inbounds/list", nil)
+		if err != nil {
+			fetchMu.Lock()
+			listErr = err
+			fetchMu.Unlock()
+			return
+		}
+		fetchMu.Lock()
+		_ = json.Unmarshal(envList.Obj, &snap.Inbounds)
+		fetchMu.Unlock()
+	}()
 
-	// Prefer the GUID-keyed subtree; fall back to the flat list only when the
-	// node is an old build without the per-GUID endpoint (#4983).
-	envTree, err := r.do(ctx, http.MethodPost, "panel/api/clients/onlinesByGuid", nil)
-	if err == nil && len(envTree.Obj) > 0 {
-		_ = json.Unmarshal(envTree.Obj, &snap.OnlineTree)
-	}
-	if len(snap.OnlineTree) == 0 {
+	fetchWg.Add(1)
+	go func() {
+		defer fetchWg.Done()
+		envTree, err := r.do(ctx, http.MethodPost, "panel/api/clients/onlinesByGuid", nil)
+		if err == nil && len(envTree.Obj) > 0 {
+			fetchMu.Lock()
+			_ = json.Unmarshal(envTree.Obj, &snap.OnlineTree)
+			fetchMu.Unlock()
+		}
+	}()
+
+	fetchWg.Add(1)
+	go func() {
+		defer fetchWg.Done()
 		envOnlines, err := r.do(ctx, http.MethodPost, "panel/api/clients/onlines", nil)
 		if err != nil {
 			logger.Warning("remote", r.node.Name, "onlines fetch failed:", err)
-		} else if len(envOnlines.Obj) > 0 {
-			_ = json.Unmarshal(envOnlines.Obj, &snap.OnlineEmails)
+			return
 		}
-	}
+		if len(envOnlines.Obj) > 0 {
+			fetchMu.Lock()
+			if len(snap.OnlineTree) == 0 {
+				_ = json.Unmarshal(envOnlines.Obj, &snap.OnlineEmails)
+			}
+			fetchMu.Unlock()
+		}
+	}()
 
-	envLastOnline, err := r.do(ctx, http.MethodPost, "panel/api/clients/lastOnline", nil)
-	if err != nil {
-		logger.Warning("remote", r.node.Name, "lastOnline fetch failed:", err)
-	} else if len(envLastOnline.Obj) > 0 {
-		_ = json.Unmarshal(envLastOnline.Obj, &snap.LastOnlineMap)
-	}
+	fetchWg.Add(1)
+	go func() {
+		defer fetchWg.Done()
+		envLastOnline, err := r.do(ctx, http.MethodPost, "panel/api/clients/lastOnline", nil)
+		if err != nil {
+			logger.Warning("remote", r.node.Name, "lastOnline fetch failed:", err)
+			return
+		}
+		if len(envLastOnline.Obj) > 0 {
+			fetchMu.Lock()
+			_ = json.Unmarshal(envLastOnline.Obj, &snap.LastOnlineMap)
+			fetchMu.Unlock()
+		}
+	}()
 
+	fetchWg.Wait()
+	if listErr != nil {
+		return nil, listErr
+	}
 	return snap, nil
 }
 
@@ -553,7 +687,11 @@ func (r *Remote) PushGlobalClientTraffics(ctx context.Context, masterGuid string
 		"masterGuid": masterGuid,
 		"traffics":   traffics,
 	}
-	_, err := r.do(ctx, http.MethodPost, "panel/api/inbounds/pushClientTraffics", payload)
+	timeout := remoteHTTPTimeout
+	if len(traffics) > 1 {
+		timeout = remoteHTTPBulkTimeout
+	}
+	_, err := r.doWithTimeout(ctx, http.MethodPost, "panel/api/inbounds/pushClientTraffics", payload, timeout)
 	return err
 }
 

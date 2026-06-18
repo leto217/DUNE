@@ -101,9 +101,28 @@ func (s *InboundService) ReconcileNode(ctx context.Context, rt *runtime.Remote, 
 				desiredTags[prefix+ib.Tag] = struct{}{}
 			}
 		}
-		if err := rt.UpdateInbound(ctx, ib, ib); err != nil {
-			return fmt.Errorf("reconcile inbound %q: %w", ib.Tag, err)
-		}
+	}
+	var (
+		reconcileMu  sync.Mutex
+		reconcileWg  sync.WaitGroup
+		reconcileErr error
+	)
+	for _, ib := range inbounds {
+		reconcileWg.Add(1)
+		go func(ib *model.Inbound) {
+			defer reconcileWg.Done()
+			if err := rt.UpdateInbound(ctx, ib, ib); err != nil {
+				reconcileMu.Lock()
+				if reconcileErr == nil {
+					reconcileErr = fmt.Errorf("reconcile inbound %q: %w", ib.Tag, err)
+				}
+				reconcileMu.Unlock()
+			}
+		}(ib)
+	}
+	reconcileWg.Wait()
+	if reconcileErr != nil {
+		return reconcileErr
 	}
 	// In "selected" sync mode the panel only manages the selected tags: the
 	// rest were never imported, so their absence from the local DB must not

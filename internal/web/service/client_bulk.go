@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,9 +35,15 @@ func (s *ClientService) BulkAttach(inboundSvc *InboundService, emails []string, 
 		return result, false, nil
 	}
 
+	var (
+		attMu sync.Mutex
+		attWg sync.WaitGroup
+	)
 	recordErr := func(format string, args ...any) {
 		msg := fmt.Sprintf(format, args...)
+		attMu.Lock()
 		result.Errors = append(result.Errors, msg)
+		attMu.Unlock()
 		logger.Warningf("[BulkAttach] %s", msg)
 	}
 
@@ -67,57 +74,71 @@ func (s *ClientService) BulkAttach(inboundSvc *InboundService, emails []string, 
 
 	needRestart := false
 	for _, ibId := range inboundIds {
-		inbound, err := inboundSvc.GetInbound(ibId)
-		if err != nil {
-			recordErr("inbound %d: %v", ibId, err)
-			continue
-		}
-		existingClients, err := inboundSvc.GetClients(inbound)
-		if err != nil {
-			recordErr("inbound %d: %v", ibId, err)
-			continue
-		}
-		have := make(map[string]struct{}, len(existingClients))
-		for _, c := range existingClients {
-			have[strings.ToLower(c.Email)] = struct{}{}
-		}
-
-		clientsToAdd := make([]model.Client, 0, len(records))
-		for _, rec := range records {
-			if _, attached := have[strings.ToLower(rec.Email)]; attached {
-				result.Skipped = append(result.Skipped, rec.Email)
-				continue
+		attWg.Add(1)
+		go func(ibId int) {
+			defer attWg.Done()
+			inbound, err := inboundSvc.GetInbound(ibId)
+			if err != nil {
+				recordErr("inbound %d: %v", ibId, err)
+				return
 			}
-			client := *rec.ToClient()
-			client.UpdatedAt = time.Now().UnixMilli()
-			if err := s.fillProtocolDefaults(&client, inbound); err != nil {
-				recordErr("%s -> inbound %d: %v", rec.Email, ibId, err)
-				continue
+			existingClients, err := inboundSvc.GetClients(inbound)
+			if err != nil {
+				recordErr("inbound %d: %v", ibId, err)
+				return
 			}
-			clientsToAdd = append(clientsToAdd, clientWithInboundFlow(client, inbound))
-		}
+			have := make(map[string]struct{}, len(existingClients))
+			for _, c := range existingClients {
+				have[strings.ToLower(c.Email)] = struct{}{}
+			}
 
-		if len(clientsToAdd) == 0 {
-			continue
-		}
+			clientsToAdd := make([]model.Client, 0, len(records))
+			var skipped []string
+			for _, rec := range records {
+				if _, attached := have[strings.ToLower(rec.Email)]; attached {
+					skipped = append(skipped, rec.Email)
+					continue
+				}
+				client := *rec.ToClient()
+				client.UpdatedAt = time.Now().UnixMilli()
+				if err := s.fillProtocolDefaults(&client, inbound); err != nil {
+					recordErr("%s -> inbound %d: %v", rec.Email, ibId, err)
+					continue
+				}
+				clientsToAdd = append(clientsToAdd, clientWithInboundFlow(client, inbound))
+			}
 
-		payload, err := json.Marshal(map[string][]model.Client{"clients": clientsToAdd})
-		if err != nil {
-			recordErr("inbound %d: %v", ibId, err)
-			continue
-		}
-		nr, err := s.addInboundClient(inboundSvc, &model.Inbound{Id: ibId, Settings: string(payload)}, emailSubIDs)
-		if err != nil {
-			recordErr("inbound %d: %v", ibId, err)
-			continue
-		}
-		if nr {
-			needRestart = true
-		}
-		for _, c := range clientsToAdd {
-			result.Attached = append(result.Attached, c.Email)
-		}
+			if len(clientsToAdd) == 0 {
+				if len(skipped) > 0 {
+					attMu.Lock()
+					result.Skipped = append(result.Skipped, skipped...)
+					attMu.Unlock()
+				}
+				return
+			}
+
+			payload, err := json.Marshal(map[string][]model.Client{"clients": clientsToAdd})
+			if err != nil {
+				recordErr("inbound %d: %v", ibId, err)
+				return
+			}
+			nr, err := s.addInboundClient(inboundSvc, &model.Inbound{Id: ibId, Settings: string(payload)}, emailSubIDs)
+			if err != nil {
+				recordErr("inbound %d: %v", ibId, err)
+				return
+			}
+			attMu.Lock()
+			if nr {
+				needRestart = true
+			}
+			result.Skipped = append(result.Skipped, skipped...)
+			for _, c := range clientsToAdd {
+				result.Attached = append(result.Attached, c.Email)
+			}
+			attMu.Unlock()
+		}(ibId)
 	}
+	attWg.Wait()
 
 	return result, needRestart, nil
 }
@@ -140,9 +161,15 @@ func (s *ClientService) BulkDetach(inboundSvc *InboundService, emails []string, 
 		return result, false, nil
 	}
 
+	var (
+		detMu sync.Mutex
+		detWg sync.WaitGroup
+	)
 	recordErr := func(format string, args ...any) {
 		msg := fmt.Sprintf(format, args...)
+		detMu.Lock()
 		result.Errors = append(result.Errors, msg)
+		detMu.Unlock()
 		logger.Warningf("[BulkDetach] %s", msg)
 	}
 
@@ -193,23 +220,33 @@ func (s *ClientService) BulkDetach(inboundSvc *InboundService, emails []string, 
 
 	needRestart := false
 	for _, ibId := range inboundIds {
-		recs, ok := recsByInbound[ibId]
-		if !ok {
-			continue
-		}
-		delete(recsByInbound, ibId)
-		nr, err := s.delInboundClients(inboundSvc, ibId, recs, true)
-		if err != nil {
-			recordErr("inbound %d: %v", ibId, err)
-			for _, rec := range recs {
-				emailFailed[strings.ToLower(rec.Email)] = true
+		detWg.Add(1)
+		go func(ibId int) {
+			defer detWg.Done()
+			recs, ok := recsByInbound[ibId]
+			if !ok {
+				return
 			}
-			continue
-		}
-		if nr {
-			needRestart = true
-		}
+			nr, err := s.delInboundClients(inboundSvc, ibId, recs, true)
+			detMu.Lock()
+			delete(recsByInbound, ibId)
+			if err != nil {
+				msg := fmt.Sprintf("inbound %d: %v", ibId, err)
+				result.Errors = append(result.Errors, msg)
+				for _, rec := range recs {
+					emailFailed[strings.ToLower(rec.Email)] = true
+				}
+				detMu.Unlock()
+				logger.Warningf("[BulkDetach] %s", msg)
+				return
+			}
+			if nr {
+				needRestart = true
+			}
+			detMu.Unlock()
+		}(ibId)
 	}
+	detWg.Wait()
 
 	for _, key := range emailOrder {
 		if emailFailed[key] {
@@ -379,17 +416,30 @@ func (s *ClientService) BulkAdjust(inboundSvc *InboundService, emails []string, 
 	}
 
 	needRestart := false
+	var (
+		adjMu sync.Mutex
+		adjWg sync.WaitGroup
+	)
 	for inboundId, ibEmails := range emailsByInbound {
-		ibRes := s.bulkAdjustInboundClients(inboundSvc, inboundId, ibEmails, plan)
-		if ibRes.needRestart {
-			needRestart = true
-		}
-		for email, reason := range ibRes.perEmailSkipped {
-			if _, already := skippedReasons[email]; !already {
-				skippedReasons[email] = reason
+		adjWg.Add(1)
+		go func(inboundId int, ibEmails []string) {
+			defer adjWg.Done()
+			ibRes := s.bulkAdjustInboundClients(inboundSvc, inboundId, ibEmails, plan, addDays, addBytes)
+			if ibRes.needRestart {
+				adjMu.Lock()
+				needRestart = true
+				adjMu.Unlock()
 			}
-		}
+			adjMu.Lock()
+			for email, reason := range ibRes.perEmailSkipped {
+				if _, already := skippedReasons[email]; !already {
+					skippedReasons[email] = reason
+				}
+			}
+			adjMu.Unlock()
+		}(inboundId, ibEmails)
 	}
+	adjWg.Wait()
 
 	for email, entry := range plan {
 		if _, skipped := skippedReasons[email]; skipped {
@@ -436,6 +486,8 @@ func (s *ClientService) bulkAdjustInboundClients(
 	inboundId int,
 	emails []string,
 	plan map[string]*bulkAdjustEntry,
+	addDays int,
+	addBytes int64,
 ) bulkInboundAdjustResult {
 	res := bulkInboundAdjustResult{perEmailSkipped: map[string]string{}}
 
@@ -526,20 +578,13 @@ func (s *ClientService) bulkAdjustInboundClients(
 				markDirty = true
 			}
 			if push {
+				emailList := make([]string, 0, len(foundEmails))
 				for email := range foundEmails {
-					entry := plan[email]
-					updated := *entry.record.ToClient()
-					if entry.applyExpiry {
-						updated.ExpiryTime = entry.newExpiry
-					}
-					if entry.applyTotal {
-						updated.TotalGB = entry.newTotal
-					}
-					updated.UpdatedAt = nowMs
-					if err1 := rt.UpdateUser(context.Background(), oldInbound, email, updated); err1 != nil {
-						logger.Warning("Error in updating client on", rt.Name(), ":", err1)
-						markDirty = true
-					}
+					emailList = append(emailList, email)
+				}
+				if err1 := rt.AdjustClients(context.Background(), oldInbound, emailList, addDays, addBytes); err1 != nil {
+					logger.Warning("Error in updating clients on", rt.Name(), ":", err1)
+					markDirty = true
 				}
 			}
 		}
@@ -662,17 +707,30 @@ func (s *ClientService) BulkDelete(inboundSvc *InboundService, emails []string, 
 	}
 
 	needRestart := false
+	var (
+		delMu sync.Mutex
+		delWg sync.WaitGroup
+	)
 	for inboundId, ibEmails := range emailsByInbound {
-		ibResult := s.bulkDelInboundClients(inboundSvc, inboundId, ibEmails, recordsByEmail, false)
-		if ibResult.needRestart {
-			needRestart = true
-		}
-		for email, reason := range ibResult.perEmailSkipped {
-			if _, already := skippedReasons[email]; !already {
-				skippedReasons[email] = reason
+		delWg.Add(1)
+		go func(inboundId int, ibEmails []string) {
+			defer delWg.Done()
+			ibResult := s.bulkDelInboundClients(inboundSvc, inboundId, ibEmails, recordsByEmail, false)
+			if ibResult.needRestart {
+				delMu.Lock()
+				needRestart = true
+				delMu.Unlock()
 			}
-		}
+			delMu.Lock()
+			for email, reason := range ibResult.perEmailSkipped {
+				if _, already := skippedReasons[email]; !already {
+					skippedReasons[email] = reason
+				}
+			}
+			delMu.Unlock()
+		}(inboundId, ibEmails)
 	}
+	delWg.Wait()
 
 	successEmails := make([]string, 0, len(recordsByEmail))
 	successIds := make([]int, 0, len(recordsByEmail))
@@ -899,11 +957,13 @@ func (s *ClientService) bulkDelInboundClients(
 				markDirty = true
 			}
 			if push {
+				emailList := make([]string, 0, len(foundEmails))
 				for email := range foundEmails {
-					if err1 := rt.DeleteUser(context.Background(), oldInbound, email); err1 != nil {
-						logger.Warning("Error in deleting client on", rt.Name(), ":", err1)
-						markDirty = true
-					}
+					emailList = append(emailList, email)
+				}
+				if err1 := rt.DeleteUsers(context.Background(), oldInbound, emailList); err1 != nil {
+					logger.Warning("Error in deleting clients on", rt.Name(), ":", err1)
+					markDirty = true
 				}
 			}
 		}
@@ -1114,24 +1174,38 @@ func (s *ClientService) BulkCreate(inboundSvc *InboundService, payloads []Client
 	}
 
 	needRestart := false
+	var (
+		nrMu sync.Mutex
+		fMu  sync.Mutex
+		wg   sync.WaitGroup
+	)
 	for _, ibId := range inboundOrder {
-		payload, e := json.Marshal(map[string][]model.Client{"clients": byInbound[ibId]})
-		if e == nil {
-			var nr bool
-			nr, e = s.addInboundClient(inboundSvc, &model.Inbound{Id: ibId, Settings: string(payload)}, emailSubIDs)
-			if e == nil && nr {
-				needRestart = true
-			}
-		}
-		if e != nil {
-			for _, idx := range idxByInbound[ibId] {
-				failed[idx] = true
-				if reason[idx] == "" {
-					reason[idx] = e.Error()
+		wg.Add(1)
+		go func(ibId int) {
+			defer wg.Done()
+			payload, e := json.Marshal(map[string][]model.Client{"clients": byInbound[ibId]})
+			if e == nil {
+				var nr bool
+				nr, e = s.addInboundClient(inboundSvc, &model.Inbound{Id: ibId, Settings: string(payload)}, emailSubIDs)
+				if e == nil && nr {
+					nrMu.Lock()
+					needRestart = true
+					nrMu.Unlock()
 				}
 			}
-		}
+			if e != nil {
+				fMu.Lock()
+				for _, idx := range idxByInbound[ibId] {
+					failed[idx] = true
+					if reason[idx] == "" {
+						reason[idx] = e.Error()
+					}
+				}
+				fMu.Unlock()
+			}
+		}(ibId)
 	}
+	wg.Wait()
 
 	for idx := range prep {
 		if failed[idx] {

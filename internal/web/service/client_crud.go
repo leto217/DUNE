@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -96,28 +97,59 @@ func (s *ClientService) Create(inboundSvc *InboundService, payload *ClientCreate
 	}
 
 	needRestart := false
+	var (
+		crMu    sync.Mutex
+		crWg    sync.WaitGroup
+		firstErr error
+	)
 	for _, ibId := range payload.InboundIds {
-		inbound, getErr := inboundSvc.GetInbound(ibId)
-		if getErr != nil {
-			return needRestart, getErr
-		}
-		if err := s.fillProtocolDefaults(&client, inbound); err != nil {
-			return needRestart, err
-		}
-		settingsPayload, mErr := json.Marshal(map[string][]model.Client{"clients": {clientWithInboundFlow(client, inbound)}})
-		if mErr != nil {
-			return needRestart, mErr
-		}
-		nr, addErr := s.AddInboundClient(inboundSvc, &model.Inbound{
-			Id:       ibId,
-			Settings: string(settingsPayload),
-		})
-		if addErr != nil {
-			return needRestart, addErr
-		}
-		if nr {
-			needRestart = true
-		}
+		crWg.Add(1)
+		go func(ibId int) {
+			defer crWg.Done()
+			inbound, getErr := inboundSvc.GetInbound(ibId)
+			if getErr != nil {
+				crMu.Lock()
+				if firstErr == nil {
+					firstErr = getErr
+				}
+				crMu.Unlock()
+				return
+			}
+			clientCopy := client
+			if err := s.fillProtocolDefaults(&clientCopy, inbound); err != nil {
+				crMu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				crMu.Unlock()
+				return
+			}
+			settingsPayload, mErr := json.Marshal(map[string][]model.Client{"clients": {clientWithInboundFlow(clientCopy, inbound)}})
+			if mErr != nil {
+				crMu.Lock()
+				if firstErr == nil {
+					firstErr = mErr
+				}
+				crMu.Unlock()
+				return
+			}
+			nr, addErr := s.AddInboundClient(inboundSvc, &model.Inbound{
+				Id:       ibId,
+				Settings: string(settingsPayload),
+			})
+			crMu.Lock()
+			if addErr != nil && firstErr == nil {
+				firstErr = addErr
+			}
+			if nr {
+				needRestart = true
+			}
+			crMu.Unlock()
+		}(ibId)
+	}
+	crWg.Wait()
+	if firstErr != nil {
+		return needRestart, firstErr
 	}
 	return needRestart, nil
 }
@@ -493,32 +525,62 @@ func (s *ClientService) Attach(inboundSvc *InboundService, id int, inboundIds []
 	clientWire.UpdatedAt = time.Now().UnixMilli()
 
 	needRestart := false
+	var (
+		atMu    sync.Mutex
+		atWg    sync.WaitGroup
+		firstErr error
+	)
 	for _, ibId := range inboundIds {
 		if _, attached := have[ibId]; attached {
 			continue
 		}
-		inbound, getErr := inboundSvc.GetInbound(ibId)
-		if getErr != nil {
-			return needRestart, getErr
-		}
-		copyClient := *clientWire
-		if err := s.fillProtocolDefaults(&copyClient, inbound); err != nil {
-			return needRestart, err
-		}
-		settingsPayload, mErr := json.Marshal(map[string][]model.Client{"clients": {clientWithInboundFlow(copyClient, inbound)}})
-		if mErr != nil {
-			return needRestart, mErr
-		}
-		nr, addErr := s.AddInboundClient(inboundSvc, &model.Inbound{
-			Id:       ibId,
-			Settings: string(settingsPayload),
-		})
-		if addErr != nil {
-			return needRestart, addErr
-		}
-		if nr {
-			needRestart = true
-		}
+		atWg.Add(1)
+		go func(ibId int) {
+			defer atWg.Done()
+			inbound, getErr := inboundSvc.GetInbound(ibId)
+			if getErr != nil {
+				atMu.Lock()
+				if firstErr == nil {
+					firstErr = getErr
+				}
+				atMu.Unlock()
+				return
+			}
+			copyClient := *clientWire
+			if err := s.fillProtocolDefaults(&copyClient, inbound); err != nil {
+				atMu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				atMu.Unlock()
+				return
+			}
+			settingsPayload, mErr := json.Marshal(map[string][]model.Client{"clients": {clientWithInboundFlow(copyClient, inbound)}})
+			if mErr != nil {
+				atMu.Lock()
+				if firstErr == nil {
+					firstErr = mErr
+				}
+				atMu.Unlock()
+				return
+			}
+			nr, addErr := s.AddInboundClient(inboundSvc, &model.Inbound{
+				Id:       ibId,
+				Settings: string(settingsPayload),
+			})
+			atMu.Lock()
+			if addErr != nil && firstErr == nil {
+				firstErr = addErr
+			}
+			if nr {
+				needRestart = true
+			}
+			atMu.Unlock()
+		}(ibId)
+	}
+	atWg.Wait()
+	if firstErr != nil {
+		return needRestart, firstErr
 	}
 	return needRestart, nil
 }

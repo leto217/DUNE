@@ -98,30 +98,49 @@ func (l *Local) RemoveUser(_ context.Context, ib *model.Inbound, email string) e
 }
 
 func (l *Local) AddClient(ctx context.Context, ib *model.Inbound, client model.Client) error {
-	if !client.Enable {
-		return nil
+	return l.AddClients(ctx, ib, []model.Client{client})
+}
+
+func (l *Local) AddClients(ctx context.Context, ib *model.Inbound, clients []model.Client) error {
+	for _, client := range clients {
+		if !client.Enable {
+			continue
+		}
+		user := map[string]any{
+			"email":    client.Email,
+			"id":       client.ID,
+			"security": client.Security,
+			"flow":     client.Flow,
+			"auth":     client.Auth,
+			"password": client.Password,
+		}
+		if err := l.AddUser(ctx, ib, user); err != nil {
+			return err
+		}
 	}
-	user := map[string]any{
-		"email":    client.Email,
-		"id":       client.ID,
-		"security": client.Security,
-		"flow":     client.Flow,
-		"auth":     client.Auth,
-		"password": client.Password,
-	}
-	return l.AddUser(ctx, ib, user)
+	return nil
 }
 
 func (l *Local) DeleteUser(ctx context.Context, ib *model.Inbound, email string) error {
-	if email == "" {
-		return nil
-	}
-	if err := l.RemoveUser(ctx, ib, email); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil
+	return l.DeleteUsers(ctx, ib, []string{email})
+}
+
+func (l *Local) DeleteUsers(ctx context.Context, ib *model.Inbound, emails []string) error {
+	for _, email := range emails {
+		if email == "" {
+			continue
 		}
-		return err
+		if err := l.RemoveUser(ctx, ib, email); err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				continue
+			}
+			return err
+		}
 	}
+	return nil
+}
+
+func (l *Local) AdjustClients(_ context.Context, _ *model.Inbound, _ []string, _ int, _ int64) error {
 	return nil
 }
 
@@ -153,6 +172,10 @@ func (l *Local) RestartXray(_ context.Context) error {
 }
 
 func (l *Local) ResetClientTraffic(_ context.Context, _ *model.Inbound, _ string) error {
+	return nil
+}
+
+func (l *Local) ResetClientsTraffic(_ context.Context, _ *model.Inbound, _ []string) error {
 	return nil
 }
 

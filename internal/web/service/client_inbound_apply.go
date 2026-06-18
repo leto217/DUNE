@@ -105,6 +105,8 @@ func (s *ClientService) delInboundClients(inboundSvc *InboundService, inboundId 
 
 	needRestart := false
 	markDirty := false
+	var remoteDetachEmails []string
+	var localRemoveEmails []string
 	for _, r := range removed {
 		email := r.email
 		emailShared := sharedSet[strings.ToLower(strings.TrimSpace(email))]
@@ -127,29 +129,37 @@ func (s *ClientService) delInboundClients(inboundSvc *InboundService, inboundId 
 					return needRestart, err
 				}
 			}
-			if r.needApiDel && notDepleted && oldInbound.NodeID == nil {
-				rt, rterr := inboundSvc.runtimeFor(oldInbound)
-				if rterr != nil {
-					needRestart = true
-				} else if err1 := rt.RemoveUser(context.Background(), oldInbound, email); err1 != nil {
+			if oldInbound.NodeID != nil {
+				remoteDetachEmails = append(remoteDetachEmails, email)
+			} else if r.needApiDel && notDepleted {
+				localRemoveEmails = append(localRemoveEmails, email)
+			}
+		}
+	}
+	if oldInbound.NodeID != nil && len(remoteDetachEmails) > 0 {
+		rt, push, dirty, perr := inboundSvc.nodePushPlan(oldInbound)
+		if perr != nil {
+			return needRestart, perr
+		}
+		if dirty {
+			markDirty = true
+		}
+		if push {
+			if err1 := rt.DeleteUsers(context.Background(), oldInbound, remoteDetachEmails); err1 != nil {
+				logger.Warning("Error in deleting clients on", rt.Name(), ":", err1)
+				markDirty = true
+			}
+		}
+	} else if len(localRemoveEmails) > 0 {
+		rt, rterr := inboundSvc.runtimeFor(oldInbound)
+		if rterr != nil {
+			needRestart = true
+		} else {
+			for _, email := range localRemoveEmails {
+				if err1 := rt.RemoveUser(context.Background(), oldInbound, email); err1 != nil {
 					if !strings.Contains(err1.Error(), fmt.Sprintf("User %s not found.", email)) {
 						needRestart = true
 					}
-				}
-			}
-		}
-		if oldInbound.NodeID != nil && len(email) > 0 {
-			rt, push, dirty, perr := inboundSvc.nodePushPlan(oldInbound)
-			if perr != nil {
-				return needRestart, perr
-			}
-			if dirty {
-				markDirty = true
-			}
-			if push {
-				if err1 := rt.DeleteUser(context.Background(), oldInbound, email); err1 != nil {
-					logger.Warning("Error in deleting client on", rt.Name(), ":", err1)
-					markDirty = true
 				}
 			}
 		}
@@ -361,16 +371,20 @@ func (s *ClientService) addInboundClient(inboundSvc *InboundService, data *model
 			}
 		}
 	} else {
+		pushClients := make([]model.Client, 0, len(clients))
 		for _, client := range clients {
 			if len(client.Email) > 0 {
 				inboundSvc.AddClientStat(tx, data.Id, &client)
-			}
-			if push {
-				if err1 := rt.AddClient(context.Background(), oldInbound, client); err1 != nil {
-					logger.Warning("Error in adding client on", rt.Name(), ":", err1)
-					markDirty = true
-					push = false
+				if push {
+					pushClients = append(pushClients, client)
 				}
+			}
+		}
+		if push && len(pushClients) > 0 {
+			if err1 := rt.AddClients(context.Background(), oldInbound, pushClients); err1 != nil {
+				logger.Warning("Error in adding clients on", rt.Name(), ":", err1)
+				markDirty = true
+				push = false
 			}
 		}
 	}
