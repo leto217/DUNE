@@ -415,7 +415,8 @@
         "sniffingHelp": "Pembungkus blok sniffing Xray:",
         "stream": "Stream",
         "streamHelp": "Pembungkus blok stream Xray:",
-        "jsonErrorPrefix": "JSON lanjutan"
+        "jsonErrorPrefix": "JSON lanjutan",
+        "clientsOmittedNotice": "{{count}} klien dikelola di halaman Klien dan dihilangkan dari editor ini. Mereka tetap dipertahankan saat Anda menyimpan."
       },
       "telegramDesc": "Harap berikan ID Obrolan Telegram. (gunakan perintah '/id' di bot) atau ({'@'}userinfobot)",
       "subscriptionDesc": "Untuk menemukan URL langganan Anda, buka 'Rincian'. Selain itu, Anda dapat menggunakan nama yang sama untuk beberapa klien.",
@@ -831,6 +832,38 @@
         "bulkAdjusted": "{count} klien disesuaikan",
         "bulkAdjustedMixed": "{ok} disesuaikan, {skipped} dilewati",
         "delDepleted": "{count} klien habis dihapus"
+      },
+      "fupTitle": "Kebijakan penggunaan wajar",
+      "fupDesc": "Ambang harian, mingguan, dan bulanan opsional untuk paket tanpa batas. 0 = nonaktif untuk periode itu.",
+      "fupDailyLimit": "Batas harian",
+      "fupWeeklyLimit": "Batas mingguan",
+      "fupMonthlyLimit": "Batas bulanan",
+      "fupLimitDesc": "Ambang dalam GB untuk periode. 0 = nonaktif.",
+      "fupResetTime": "Waktu reset harian",
+      "fupResetTimeDesc": "Waktu lokal server reset periode harian (HH:MM). Juga untuk reset mingguan/bulanan.",
+      "fupWeeklyResetDay": "Hari reset mingguan",
+      "fupMonthlyResetDay": "Hari reset bulanan",
+      "fupAction": "Tindakan setelah melampaui batas",
+      "fupActionNotify": "Hanya beri tahu admin",
+      "fupActionDisableHours": "Nonaktifkan klien selama X jam",
+      "fupActionDisableUntilReset": "Nonaktifkan hingga reset periode berikutnya",
+      "fupDisableHours": "Durasi nonaktif (jam)",
+      "fupDailyShort": "Hari ini",
+      "fupWeeklyShort": "Minggu ini",
+      "fupMonthlyShort": "Bulan ini",
+      "fupStatus": {
+        "normal": "Normal",
+        "exceeded": "Terlampaui",
+        "disabled": "Nonaktif hingga reset"
+      },
+      "weekday": {
+        "sun": "Minggu",
+        "mon": "Senin",
+        "tue": "Selasa",
+        "wed": "Rabu",
+        "thu": "Kamis",
+        "fri": "Jumat",
+        "sat": "Sabtu"
       }
     },
     "groups": {
@@ -1910,7 +1943,9 @@
       "eventNodeUp": "Node {{ .Name }} AKTIF",
       "eventCPUHigh": "CPU tinggi",
       "eventCPUHighDetail": "CPU: {{ .Detail }}",
-      "eventLoginFallback": "Gagal masuk dari {{ .Source }}"
+      "eventLoginFallback": "Gagal masuk dari {{ .Source }}",
+      "eventFupExceeded": "⚠️ Penggunaan wajar terlampaui untuk {{ .Email }} ({{ .Period }}): {{ .Used }} / {{ .Limit }} — tindakan: {{ .Action }}",
+      "eventFupExceededFallback": "⚠️ Penggunaan wajar terlampaui untuk {{ .Email }}"
     },
     "buttons": {
       "closeKeyboard": "❌ Tutup Papan Ketik",

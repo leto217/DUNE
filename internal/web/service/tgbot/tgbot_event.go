@@ -30,6 +30,13 @@ var tgEventLimiter = eventbus.NewRateLimiter(1 * time.Minute)
 // HandleEvent is the eventbus subscriber callback. It formats incoming events
 // as Telegram messages and sends them to all admin chats.
 func (t *Tgbot) HandleEvent(e eventbus.Event) {
+	if e.Type == eventbus.EventFUPExceeded {
+		msg := t.formatEventMessage(e)
+		if msg != "" {
+			t.SendMsgToTgbotAdmins(msg)
+		}
+		return
+	}
 	if !t.isEventEnabled(e.Type) {
 		return
 	}
@@ -123,6 +130,17 @@ func (t *Tgbot) formatEventMessage(e eventbus.Event) string {
 		}
 		return ""
 
+	case eventbus.EventFUPExceeded:
+		if data, ok := e.Data.(*eventbus.FUPExceededData); ok {
+			return header + t.I18nBot("tgbot.messages.eventFupExceeded",
+				"Email=="+e.Source,
+				"Period=="+data.Period,
+				"Used=="+fupBytesLabel(data.Used),
+				"Limit=="+fupBytesLabel(data.Limit),
+				"Action=="+data.Action)
+		}
+		return header + t.I18nBot("tgbot.messages.eventFupExceededFallback", "Email=="+e.Source)
+
 	case eventbus.EventLoginAttempt:
 		if data, ok := e.Data.(*eventbus.LoginEventData); ok {
 			if data.Status == "success" {
@@ -147,4 +165,15 @@ func (t *Tgbot) formatEventMessage(e eventbus.Event) string {
 	}
 
 	return ""
+}
+
+func fupBytesLabel(b int64) string {
+	if b <= 0 {
+		return "0"
+	}
+	gb := float64(b) / (1024 * 1024 * 1024)
+	if gb >= 10 {
+		return fmt.Sprintf("%.1f GB", gb)
+	}
+	return fmt.Sprintf("%.2f GB", gb)
 }

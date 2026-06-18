@@ -415,7 +415,8 @@
         "sniffingHelp": "Wrapper do bloco sniffing do Xray:",
         "stream": "Stream",
         "streamHelp": "Wrapper do bloco stream do Xray:",
-        "jsonErrorPrefix": "JSON avançado"
+        "jsonErrorPrefix": "JSON avançado",
+        "clientsOmittedNotice": "{{count}} clientes são gerenciados na página Clientes e omitidos neste editor. Eles são preservados ao salvar."
       },
       "telegramDesc": "Por favor, forneça o ID do Chat do Telegram. (use o comando '/id' no bot) ou ({'@'}userinfobot)",
       "subscriptionDesc": "Para encontrar seu URL de assinatura, navegue até 'Detalhes'. Além disso, você pode usar o mesmo nome para vários clientes.",
@@ -831,6 +832,38 @@
         "bulkAdjusted": "{count} clientes ajustados",
         "bulkAdjustedMixed": "{ok} ajustados, {skipped} ignorados",
         "delDepleted": "{count} clientes esgotados excluídos"
+      },
+      "fupTitle": "Política de uso justo",
+      "fupDesc": "Limites opcionais diários, semanais e mensais para planos ilimitados. 0 = desativado para o período.",
+      "fupDailyLimit": "Limite diário",
+      "fupWeeklyLimit": "Limite semanal",
+      "fupMonthlyLimit": "Limite mensal",
+      "fupLimitDesc": "Limite em GB para o período. 0 = desativado.",
+      "fupResetTime": "Hora de reset diário",
+      "fupResetTimeDesc": "Hora local do servidor do reset diário (HH:MM). Também usada no reset semanal/mensal.",
+      "fupWeeklyResetDay": "Dia de reset semanal",
+      "fupMonthlyResetDay": "Dia de reset mensal",
+      "fupAction": "Ação ao exceder qualquer limite",
+      "fupActionNotify": "Apenas notificar o administrador",
+      "fupActionDisableHours": "Desativar cliente por X horas",
+      "fupActionDisableUntilReset": "Desativar até o próximo reset do período",
+      "fupDisableHours": "Duração da desativação (horas)",
+      "fupDailyShort": "Hoje",
+      "fupWeeklyShort": "Esta semana",
+      "fupMonthlyShort": "Este mês",
+      "fupStatus": {
+        "normal": "Normal",
+        "exceeded": "Excedido",
+        "disabled": "Desativado até reset"
+      },
+      "weekday": {
+        "sun": "Domingo",
+        "mon": "Segunda-feira",
+        "tue": "Terça-feira",
+        "wed": "Quarta-feira",
+        "thu": "Quinta-feira",
+        "fri": "Sexta-feira",
+        "sat": "Sábado"
       }
     },
     "groups": {
@@ -1910,7 +1943,9 @@
       "eventNodeUp": "O nó {{ .Name }} está ATIVO",
       "eventCPUHigh": "CPU alta",
       "eventCPUHighDetail": "CPU: {{ .Detail }}",
-      "eventLoginFallback": "Falha de login a partir de {{ .Source }}"
+      "eventLoginFallback": "Falha de login a partir de {{ .Source }}",
+      "eventFupExceeded": "⚠️ Uso justo excedido para {{ .Email }} ({{ .Period }}): {{ .Used }} / {{ .Limit }} — ação: {{ .Action }}",
+      "eventFupExceededFallback": "⚠️ Uso justo excedido para {{ .Email }}"
     },
     "buttons": {
       "closeKeyboard": "❌ Fechar teclado",

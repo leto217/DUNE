@@ -199,6 +199,25 @@ export function rawInboundToFormValues(row: RawInboundRow): InboundFormValues {
   } as InboundFormValues;
 }
 
+// Inbound edit never touches clients in this modal — they are managed on the
+// Clients page and preserved via mergeEditFormWithServer on save. Keeping
+// thousands of clients out of the AntD form store avoids freezing/crashing the
+// tab when Advanced JSON editors stringify settings on mount.
+export function stripClientsFromFormValues(values: InboundFormValues): InboundFormValues {
+  const settings = values.settings;
+  if (!settings || typeof settings !== 'object') return values;
+  const next = { ...(settings as Record<string, unknown>) };
+  delete next.clients;
+  return { ...values, settings: next as InboundFormValues['settings'] };
+}
+
+export function serverClientCount(row: RawInboundRow | null | undefined): number {
+  if (!row) return 0;
+  const settings = coerceJsonObject(row.settings);
+  const clients = settings.clients;
+  return Array.isArray(clients) ? clients.length : 0;
+}
+
 // Recursively strip undefined leaves from the wire payload. Empty arrays
 // and empty objects are PRESERVED — legacy XrayCommonClass.toJson() kept
 // shells like `tcpSettings: {}` so xray-core picks up its built-in

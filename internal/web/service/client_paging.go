@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gary/dune/internal/database"
+	"github.com/gary/dune/internal/database/model"
 	"github.com/gary/dune/internal/xray"
 )
 
@@ -26,6 +28,7 @@ type ClientSlim struct {
 	Comment    string              `json:"comment,omitempty"`
 	InboundIds []int               `json:"inboundIds"`
 	Traffic    *xray.ClientTraffic `json:"traffic,omitempty"`
+	Fup        *FupStatus          `json:"fup,omitempty"`
 	CreatedAt  int64               `json:"createdAt"`
 	UpdatedAt  int64               `json:"updatedAt"`
 }
@@ -200,8 +203,9 @@ func (s *ClientService) ListPaged(inboundSvc *InboundService, settingSvc *Settin
 	pageRows := filtered[start:end]
 
 	items := make([]ClientSlim, 0, len(pageRows))
+	fupStates := loadFupStatesForClients(pageRows)
 	for _, c := range pageRows {
-		items = append(items, toClientSlim(c))
+		items = append(items, toClientSlim(c, fupStates[c.Email]))
 	}
 
 	groupRows, gErr := s.ListGroups()
@@ -298,8 +302,9 @@ func (s *ClientService) listPagedFast(inboundSvc *InboundService, settingSvc *Se
 	}
 
 	items := make([]ClientSlim, 0, len(pageRows))
+	fupStates := loadFupStatesForClients(pageRows)
 	for _, c := range pageRows {
-		items = append(items, toClientSlim(c))
+		items = append(items, toClientSlim(c, fupStates[c.Email]))
 	}
 
 	groupRows, gErr := s.ListGroups()
@@ -361,8 +366,8 @@ func buildClientsSummary(all []ClientWithAttachments, onlineSet map[string]struc
 	return s
 }
 
-func toClientSlim(c ClientWithAttachments) ClientSlim {
-	return ClientSlim{
+func toClientSlim(c ClientWithAttachments, fupState *model.ClientFupState) ClientSlim {
+	slim := ClientSlim{
 		Email:      c.Email,
 		SubID:      c.SubID,
 		Enable:     c.Enable,
@@ -377,6 +382,20 @@ func toClientSlim(c ClientWithAttachments) ClientSlim {
 		CreatedAt:  c.CreatedAt,
 		UpdatedAt:  c.UpdatedAt,
 	}
+	if c.HasFairUsagePolicy() {
+		slim.Fup = computeFupStatus(&c.ClientRecord, fupState, c.Traffic, time.Now())
+	}
+	return slim
+}
+
+func loadFupStatesForClients(rows []ClientWithAttachments) map[string]*model.ClientFupState {
+	emails := make([]string, 0, len(rows))
+	for _, c := range rows {
+		if c.HasFairUsagePolicy() && c.Email != "" {
+			emails = append(emails, c.Email)
+		}
+	}
+	return loadFupStatesByEmail(database.GetDB(), emails)
 }
 
 func clientMatchesSearch(c ClientWithAttachments, needle string) bool {

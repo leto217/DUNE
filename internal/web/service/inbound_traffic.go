@@ -67,6 +67,17 @@ func (s *InboundService) addTrafficLocked(inboundTraffics []*xray.Traffic, clien
 		disabledClientsCount = count
 	}
 
+	needRestartFup, fupDisabled, fupNodeIDs, fupErr := s.enforceFairUsage(tx)
+	if fupErr != nil {
+		logger.Warning("Error in fair usage enforcement:", fupErr)
+	} else if fupDisabled {
+		disabledClientsCount += 1
+	}
+	if needRestartFup {
+		needRestart1 = true
+	}
+	disabledNodeIDs = append(disabledNodeIDs, fupNodeIDs...)
+
 	needRestart2, count, err := s.disableInvalidInbounds(tx)
 	if err != nil {
 		logger.Warning("Error in disabling invalid inbounds:", err)
@@ -444,7 +455,10 @@ func (s *InboundService) DelClientStat(tx *gorm.DB, email string) error {
 	if err := clearGlobalTraffic(tx, email); err != nil {
 		return err
 	}
-	return tx.Where("email = ?", email).Delete(&model.NodeClientTraffic{}).Error
+	if err := tx.Where("email = ?", email).Delete(&model.NodeClientTraffic{}).Error; err != nil {
+		return err
+	}
+	return tx.Where("email = ?", email).Delete(&model.ClientFupState{}).Error
 }
 
 func (s *InboundService) delClientStatsByEmails(tx *gorm.DB, emails []string) error {
@@ -461,6 +475,9 @@ func (s *InboundService) delClientStatsByEmails(tx *gorm.DB, emails []string) er
 		if err := tx.Where("email IN ?", batch).Delete(&model.NodeClientTraffic{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("email IN ?", batch).Delete(&model.ClientFupState{}).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -468,12 +485,17 @@ func (s *InboundService) delClientStatsByEmails(tx *gorm.DB, emails []string) er
 func (s *InboundService) ResetClientTrafficByEmail(clientEmail string) error {
 	return submitTrafficWrite(func() error {
 		db := database.GetDB()
-		if err := clearGlobalTraffic(db, clientEmail); err != nil {
-			return err
-		}
-		return db.Model(xray.ClientTraffic{}).
-			Where("email = ?", clientEmail).
-			Updates(map[string]any{"enable": true, "up": 0, "down": 0}).Error
+		return db.Transaction(func(tx *gorm.DB) error {
+			if err := clearGlobalTraffic(tx, clientEmail); err != nil {
+				return err
+			}
+			if err := tx.Model(xray.ClientTraffic{}).
+				Where("email = ?", clientEmail).
+				Updates(map[string]any{"enable": true, "up": 0, "down": 0}).Error; err != nil {
+				return err
+			}
+			return resetFupBaselines(tx, []string{clientEmail})
+		})
 	})
 }
 
@@ -566,6 +588,9 @@ func (s *InboundService) resetClientTrafficLocked(id int, clientEmail string) (b
 	}
 	if err := clearGlobalTraffic(db, clientEmail); err != nil {
 		return false, err
+	}
+	if err := resetFupBaselines(db, []string{clientEmail}); err != nil {
+		return needRestart, err
 	}
 
 	now := time.Now().UnixMilli()

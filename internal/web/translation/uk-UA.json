@@ -415,7 +415,8 @@
         "sniffingHelp": "Обгортка блоку sniffing Xray:",
         "stream": "Stream",
         "streamHelp": "Обгортка блоку stream Xray:",
-        "jsonErrorPrefix": "Розширений JSON"
+        "jsonErrorPrefix": "Розширений JSON",
+        "clientsOmittedNotice": "{{count}} клієнтів керуються на сторінці «Клієнти» й не показані в цьому редакторі. Вони зберігаються під час збереження."
       },
       "telegramDesc": "Будь ласка, вкажіть ID чату Telegram. (використовуйте команду '/id' у боті) або ({'@'}userinfobot)",
       "subscriptionDesc": "Щоб знайти URL-адресу вашої підписки, перейдіть до «Деталі». Крім того, ви можете використовувати одне ім'я для кількох клієнтів.",
@@ -831,6 +832,38 @@
         "bulkAdjusted": "Змінено клієнтів: {count}",
         "bulkAdjustedMixed": "Змінено: {ok}, пропущено: {skipped}",
         "delDepleted": "Видалено вичерпаних клієнтів: {count}"
+      },
+      "fupTitle": "Політика чесного використання",
+      "fupDesc": "Необов'язкові денні, тижневі та місячні пороги для безлімітних тарифів. 0 = вимкнено для періоду.",
+      "fupDailyLimit": "Денний ліміт",
+      "fupWeeklyLimit": "Тижневий ліміт",
+      "fupMonthlyLimit": "Місячний ліміт",
+      "fupLimitDesc": "Поріг у ГБ для періоду. 0 = вимкнено.",
+      "fupResetTime": "Час денного скидання",
+      "fupResetTimeDesc": "Локальний час сервера скидання денного періоду (ГГ:ХХ). Також для тижневого/місячного.",
+      "fupWeeklyResetDay": "День тижневого скидання",
+      "fupMonthlyResetDay": "День місячного скидання",
+      "fupAction": "Дія після перевищення будь-якого ліміту",
+      "fupActionNotify": "Лише сповістити адміна",
+      "fupActionDisableHours": "Вимкнути клієнта на X годин",
+      "fupActionDisableUntilReset": "Вимкнути до наступного скидання періоду",
+      "fupDisableHours": "Тривалість вимкнення (години)",
+      "fupDailyShort": "Сьогодні",
+      "fupWeeklyShort": "Цей тиждень",
+      "fupMonthlyShort": "Цей місяць",
+      "fupStatus": {
+        "normal": "Норма",
+        "exceeded": "Перевищено",
+        "disabled": "Вимкнено до скидання"
+      },
+      "weekday": {
+        "sun": "Неділя",
+        "mon": "Понеділок",
+        "tue": "Вівторок",
+        "wed": "Середа",
+        "thu": "Четвер",
+        "fri": "П'ятниця",
+        "sat": "Субота"
       }
     },
     "groups": {
@@ -1910,7 +1943,9 @@
       "eventNodeUp": "Вузол {{ .Name }} ДОСТУПНИЙ",
       "eventCPUHigh": "Високе навантаження на CPU",
       "eventCPUHighDetail": "CPU: {{ .Detail }}",
-      "eventLoginFallback": "Невдала спроба входу з {{ .Source }}"
+      "eventLoginFallback": "Невдала спроба входу з {{ .Source }}",
+      "eventFupExceeded": "⚠️ Перевищено ліміт чесного використання для {{ .Email }} ({{ .Period }}): {{ .Used }} / {{ .Limit }} — дія: {{ .Action }}",
+      "eventFupExceededFallback": "⚠️ Перевищено ліміт чесного використання для {{ .Email }}"
     },
     "buttons": {
       "closeKeyboard": "❌ Закрити клавіатуру",

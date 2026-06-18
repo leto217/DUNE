@@ -415,7 +415,8 @@
         "sniffingHelp": "Xray sniffing 块包装：",
         "stream": "Stream",
         "streamHelp": "Xray stream 块包装：",
-        "jsonErrorPrefix": "高级 JSON"
+        "jsonErrorPrefix": "高级 JSON",
+        "clientsOmittedNotice": "共 {{count}} 个客户端在「客户端」页面管理，已从此编辑器中省略。保存时会保留它们。"
       },
       "telegramDesc": "请提供Telegram聊天ID。（在机器人中使用'/id'命令）或（{'@'}userinfobot",
       "subscriptionDesc": "要找到你的订阅 URL，请导航到“详细信息”。此外，你可以为多个客户端使用相同的名称。",
@@ -831,6 +832,38 @@
         "bulkAdjusted": "已调整 {count} 个客户端",
         "bulkAdjustedMixed": "已调整 {ok} 个，跳过 {skipped} 个",
         "delDepleted": "已删除 {count} 个已耗尽的客户端"
+      },
+      "fupTitle": "公平使用策略",
+      "fupDesc": "为不限总量套餐设置可选的每日、每周、每月用量阈值。0 表示该周期不启用。",
+      "fupDailyLimit": "每日限额",
+      "fupWeeklyLimit": "每周限额",
+      "fupMonthlyLimit": "每月限额",
+      "fupLimitDesc": "该周期的阈值（GB）。0 = 不启用。",
+      "fupResetTime": "每日重置时间",
+      "fupResetTimeDesc": "服务器本地时间，每日周期重置时刻（HH:MM）。也用于周/月重置的时钟。",
+      "fupWeeklyResetDay": "每周重置日",
+      "fupMonthlyResetDay": "每月重置日",
+      "fupAction": "超出任一限额后的操作",
+      "fupActionNotify": "仅通知管理员",
+      "fupActionDisableHours": "禁用客户端 X 小时",
+      "fupActionDisableUntilReset": "禁用至下一周期重置",
+      "fupDisableHours": "禁用时长（小时）",
+      "fupDailyShort": "今日",
+      "fupWeeklyShort": "本周",
+      "fupMonthlyShort": "本月",
+      "fupStatus": {
+        "normal": "正常",
+        "exceeded": "已超出",
+        "disabled": "已禁用至重置"
+      },
+      "weekday": {
+        "sun": "星期日",
+        "mon": "星期一",
+        "tue": "星期二",
+        "wed": "星期三",
+        "thu": "星期四",
+        "fri": "星期五",
+        "sat": "星期六"
       }
     },
     "groups": {
@@ -1910,7 +1943,9 @@
       "eventNodeUp": "节点 {{ .Name }} 已上线",
       "eventCPUHigh": "CPU 占用过高",
       "eventCPUHighDetail": "CPU：{{ .Detail }}",
-      "eventLoginFallback": "来自 {{ .Source }} 的登录失败"
+      "eventLoginFallback": "来自 {{ .Source }} 的登录失败",
+      "eventFupExceeded": "⚠️ 客户端 {{ .Email }} 超出公平使用限额 ({{ .Period }})：{{ .Used }} / {{ .Limit }} — 操作：{{ .Action }}",
+      "eventFupExceededFallback": "⚠️ 客户端 {{ .Email }} 超出公平使用限额"
     },
     "buttons": {
       "closeKeyboard": "❌ 关闭键盘",

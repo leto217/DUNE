@@ -605,6 +605,15 @@ type Client struct {
 	Group      string         `json:"group,omitempty" form:"group"` // Logical grouping label
 	Comment    string         `json:"comment" form:"comment"`       // Client comment
 	Reset      int            `json:"reset" form:"reset"`           // Reset period in days
+	// Fair usage policy — limits stored in bytes (0 = disabled for that period).
+	FupDailyLimitGB    int64  `json:"fupDailyLimitGB" form:"fupDailyLimitGB"`
+	FupWeeklyLimitGB   int64  `json:"fupWeeklyLimitGB" form:"fupWeeklyLimitGB"`
+	FupMonthlyLimitGB  int64  `json:"fupMonthlyLimitGB" form:"fupMonthlyLimitGB"`
+	FupAction          string `json:"fupAction" form:"fupAction"`
+	FupDisableHours    int    `json:"fupDisableHours" form:"fupDisableHours"`
+	FupResetTime       string `json:"fupResetTime" form:"fupResetTime"`
+	FupWeeklyResetDay  int    `json:"fupWeeklyResetDay" form:"fupWeeklyResetDay"`
+	FupMonthlyResetDay int    `json:"fupMonthlyResetDay" form:"fupMonthlyResetDay"`
 	CreatedAt  int64          `json:"created_at,omitempty"`         // Creation timestamp
 	UpdatedAt  int64          `json:"updated_at,omitempty"`         // Last update timestamp
 }
@@ -633,11 +642,24 @@ type ClientRecord struct {
 	Group     string `json:"group" gorm:"column:group_name;default:'';index:idx_client_record_group"`
 	Comment   string `json:"comment"`
 	Reset     int    `json:"reset" gorm:"default:0"`
+	FupDailyLimitGB    int64  `json:"fupDailyLimitGB" gorm:"column:fup_daily_limit_gb;default:0"`
+	FupWeeklyLimitGB   int64  `json:"fupWeeklyLimitGB" gorm:"column:fup_weekly_limit_gb;default:0"`
+	FupMonthlyLimitGB  int64  `json:"fupMonthlyLimitGB" gorm:"column:fup_monthly_limit_gb;default:0"`
+	FupAction          string `json:"fupAction" gorm:"column:fup_action;default:notify"`
+	FupDisableHours    int    `json:"fupDisableHours" gorm:"column:fup_disable_hours;default:0"`
+	FupResetTime       string `json:"fupResetTime" gorm:"column:fup_reset_time;default:00:00"`
+	FupWeeklyResetDay  int    `json:"fupWeeklyResetDay" gorm:"column:fup_weekly_reset_day;default:1"`
+	FupMonthlyResetDay int    `json:"fupMonthlyResetDay" gorm:"column:fup_monthly_reset_day;default:1"`
 	CreatedAt int64  `json:"createdAt" gorm:"autoCreateTime:milli"`
 	UpdatedAt int64  `json:"updatedAt" gorm:"autoUpdateTime:milli"`
 }
 
 func (ClientRecord) TableName() string { return "clients" }
+
+// HasFairUsagePolicy reports whether any FUP limit is configured.
+func (r *ClientRecord) HasFairUsagePolicy() bool {
+	return r != nil && (r.FupDailyLimitGB > 0 || r.FupWeeklyLimitGB > 0 || r.FupMonthlyLimitGB > 0)
+}
 
 type ClientGroup struct {
 	Id        int    `json:"id" gorm:"primaryKey;autoIncrement"`
@@ -797,7 +819,15 @@ func (c *Client) ToRecord() *ClientRecord {
 		TgID:       c.TgID,
 		Group:      c.Group,
 		Comment:    c.Comment,
-		Reset:      c.Reset,
+		Reset:              c.Reset,
+		FupDailyLimitGB:    c.FupDailyLimitGB,
+		FupWeeklyLimitGB:   c.FupWeeklyLimitGB,
+		FupMonthlyLimitGB:  c.FupMonthlyLimitGB,
+		FupAction:          c.FupAction,
+		FupDisableHours:    c.FupDisableHours,
+		FupResetTime:       c.FupResetTime,
+		FupWeeklyResetDay:  c.FupWeeklyResetDay,
+		FupMonthlyResetDay: c.FupMonthlyResetDay,
 		CreatedAt:  c.CreatedAt,
 		UpdatedAt:  c.UpdatedAt,
 	}
@@ -825,7 +855,15 @@ func (r *ClientRecord) ToClient() *Client {
 		TgID:       r.TgID,
 		Group:      r.Group,
 		Comment:    r.Comment,
-		Reset:      r.Reset,
+		Reset:              r.Reset,
+		FupDailyLimitGB:    r.FupDailyLimitGB,
+		FupWeeklyLimitGB:   r.FupWeeklyLimitGB,
+		FupMonthlyLimitGB:  r.FupMonthlyLimitGB,
+		FupAction:          r.FupAction,
+		FupDisableHours:    r.FupDisableHours,
+		FupResetTime:       r.FupResetTime,
+		FupWeeklyResetDay:  r.FupWeeklyResetDay,
+		FupMonthlyResetDay: r.FupMonthlyResetDay,
 		CreatedAt:  r.CreatedAt,
 		UpdatedAt:  r.UpdatedAt,
 	}

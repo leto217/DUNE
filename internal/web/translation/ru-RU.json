@@ -415,7 +415,8 @@
         "sniffingHelp": "Обёртка блока sniffing Xray:",
         "stream": "Stream",
         "streamHelp": "Обёртка блока stream Xray:",
-        "jsonErrorPrefix": "Расширенный JSON"
+        "jsonErrorPrefix": "Расширенный JSON",
+        "clientsOmittedNotice": "{{count}} клиентов управляются на странице «Клиенты» и не показаны в этом редакторе. Они сохраняются при сохранении."
       },
       "telegramDesc": "Пожалуйста, укажите Chat ID Telegram. (используйте команду '/id' в боте) или ({'@'}userinfobot)",
       "subscriptionDesc": "Вы можете найти свою ссылку подписки в разделе 'Подробнее'",
@@ -831,6 +832,38 @@
         "bulkAdjusted": "Изменено клиентов: {count}",
         "bulkAdjustedMixed": "Изменено: {ok}, пропущено: {skipped}",
         "delDepleted": "Удалено исчерпанных клиентов: {count}"
+      },
+      "fupTitle": "Политика честного использования",
+      "fupDesc": "Необязательные дневные, недельные и месячные пороги для безлимитных тарифов. 0 = отключено для периода.",
+      "fupDailyLimit": "Дневной лимит",
+      "fupWeeklyLimit": "Недельный лимит",
+      "fupMonthlyLimit": "Месячный лимит",
+      "fupLimitDesc": "Порог в ГБ для периода. 0 = отключено.",
+      "fupResetTime": "Время сброса дня",
+      "fupResetTimeDesc": "Локальное время сервера сброса дневного периода (ЧЧ:ММ). Также для недельного/месячного сброса.",
+      "fupWeeklyResetDay": "День недельного сброса",
+      "fupMonthlyResetDay": "День месячного сброса",
+      "fupAction": "Действие при превышении любого лимита",
+      "fupActionNotify": "Только уведомить админа",
+      "fupActionDisableHours": "Отключить клиента на X часов",
+      "fupActionDisableUntilReset": "Отключить до следующего сброса периода",
+      "fupDisableHours": "Длительность отключения (часы)",
+      "fupDailyShort": "Сегодня",
+      "fupWeeklyShort": "Эта неделя",
+      "fupMonthlyShort": "Этот месяц",
+      "fupStatus": {
+        "normal": "Норма",
+        "exceeded": "Превышено",
+        "disabled": "Отключён до сброса"
+      },
+      "weekday": {
+        "sun": "Воскресенье",
+        "mon": "Понедельник",
+        "tue": "Вторник",
+        "wed": "Среда",
+        "thu": "Четверг",
+        "fri": "Пятница",
+        "sat": "Суббота"
       }
     },
     "groups": {
@@ -1910,7 +1943,9 @@
       "eventNodeUp": "Узел {{ .Name }} В СЕТИ",
       "eventCPUHigh": "Высокая загрузка CPU",
       "eventCPUHighDetail": "CPU: {{ .Detail }}",
-      "eventLoginFallback": "Неудачный вход с {{ .Source }}"
+      "eventLoginFallback": "Неудачный вход с {{ .Source }}",
+      "eventFupExceeded": "⚠️ Превышен лимит честного использования для {{ .Email }} ({{ .Period }}): {{ .Used }} / {{ .Limit }} — действие: {{ .Action }}",
+      "eventFupExceededFallback": "⚠️ Превышен лимит честного использования для {{ .Email }}"
     },
     "buttons": {
       "closeKeyboard": "❌ Закрыть клавиатуру",

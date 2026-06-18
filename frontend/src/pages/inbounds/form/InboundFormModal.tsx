@@ -21,6 +21,8 @@ import {
   rawInboundToFormValues,
   formValuesToWirePayload,
   mergeEditFormWithServer,
+  serverClientCount,
+  stripClientsFromFormValues,
   type RawInboundRow,
 } from '@/lib/xray/inbound-form-adapter';
 import { parseMsg } from '@/utils/zodValidate';
@@ -177,6 +179,7 @@ export default function InboundFormModal({
   const [form] = Form.useForm<InboundFormValues>();
   const [saving, setSaving] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
+  const [editClientCount, setEditClientCount] = useState(0);
   const serverInboundRef = useRef<RawInboundRow | null>(null);
   const {
     fallbacks,
@@ -331,6 +334,7 @@ export default function InboundFormModal({
   useEffect(() => {
     if (!open) {
       serverInboundRef.current = null;
+      setEditClientCount(0);
       setLoadingEdit(false);
       return;
     }
@@ -383,11 +387,14 @@ export default function InboundFormModal({
         }
         const row = validated.obj as RawInboundRow;
         serverInboundRef.current = row;
-        applyInitial(rawInboundToFormValues(row), dbInbound.id);
+        setEditClientCount(serverClientCount(row));
+        const formValues = stripClientsFromFormValues(rawInboundToFormValues(row));
+        applyInitial(formValues, dbInbound.id);
         setLoadingEdit(false);
       })();
     } else {
       serverInboundRef.current = null;
+      setEditClientCount(0);
       applyInitial(buildAddModeValues(), null);
     }
 
@@ -497,9 +504,6 @@ export default function InboundFormModal({
     // every save. getFieldsValue(true) returns the entire form store and
     // keeps those sub-trees intact.
     let values = form.getFieldsValue(true) as InboundFormValues;
-    if (mode === 'edit' && serverInboundRef.current) {
-      values = mergeEditFormWithServer(values, serverInboundRef.current);
-    }
     const parsed = InboundFormSchema.safeParse(values);
     if (!parsed.success) {
       const issues = parsed.error.issues;
@@ -510,9 +514,14 @@ export default function InboundFormModal({
       );
       return;
     }
+    if (mode === 'edit' && serverInboundRef.current) {
+      values = mergeEditFormWithServer(parsed.data, serverInboundRef.current);
+    } else {
+      values = parsed.data;
+    }
     setSaving(true);
     try {
-      const payload = formValuesToWirePayload(parsed.data);
+      const payload = formValuesToWirePayload(values);
       const url = mode === 'edit' && dbInbound
         ? `/panel/api/inbounds/update/${dbInbound.id}`
         : '/panel/api/inbounds/add';
@@ -939,6 +948,14 @@ export default function InboundFormModal({
             <div className="advanced-panel__subtitle">{t('pages.inbounds.advanced.subtitle')}</div>
           </div>
         </div>
+        {editClientCount > 0 && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={t('pages.inbounds.advanced.clientsOmittedNotice', { count: editClientCount })}
+          />
+        )}
         <Tabs
           className="advanced-inner-tabs"
           items={[
@@ -1079,7 +1096,7 @@ export default function InboundFormModal({
             ...(sniffingSupported
               ? [{ key: 'sniffing', label: t('pages.inbounds.sniffingTab'), children: sniffingTab, forceRender: true }]
               : []),
-            { key: 'advanced', label: t('pages.xray.advancedTemplate'), children: advancedTab, forceRender: true },
+            { key: 'advanced', label: t('pages.xray.advancedTemplate'), children: advancedTab },
           ]} />
         </Form>
       </Modal>

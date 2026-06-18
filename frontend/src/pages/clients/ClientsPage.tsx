@@ -55,6 +55,7 @@ import { useNodesQuery } from '@/api/queries/useNodesQuery';
 import { useDatepicker } from '@/hooks/useDatepicker';
 import type { ClientRecord, InboundOption, ExternalLink, ExternalLinkInput } from '@/hooks/useClients';
 import ClientTrafficCell from '@/components/clients/ClientTrafficCell';
+import ClientFupCell from '@/components/clients/ClientFupCell';
 import AppSidebar from '@/layouts/AppSidebar';
 import { IntlUtil, SizeFormatter } from '@/utils';
 import { setMessageInstance } from '@/utils/messageBus';
@@ -767,6 +768,12 @@ export default function ClientsPage() {
           trafficDiff={trafficDiff}
         />
       ),
+    },
+    {
+      title: t('pages.clients.fupTitle'),
+      key: 'fup',
+      width: 200,
+      render: (_v, record) => <ClientFupCell fup={record.fup} />,
     },
     {
       title: t('pages.clients.remaining'),

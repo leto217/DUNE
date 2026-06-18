@@ -5,6 +5,7 @@ import {
   rawInboundToFormValues,
   formValuesToWirePayload,
   mergeEditFormWithServer,
+  stripClientsFromFormValues,
   type RawInboundRow,
 } from '@/lib/xray/inbound-form-adapter';
 import { InboundDbFieldsSchema, InboundFormSchema } from '@/schemas/forms/inbound-form';
@@ -303,6 +304,25 @@ describe('subSortIndex', () => {
     // A valid integer >= 1 must pass (guards against a mutant rejecting all values).
     expect(InboundDbFieldsSchema.partial().safeParse({ subSortIndex: 5 }).success).toBe(true);
     expect(InboundDbFieldsSchema.parse({}).subSortIndex).toBe(1);
+  });
+});
+
+describe('stripClientsFromFormValues', () => {
+  it('removes clients from settings while preserving other fields', () => {
+    const values = rawInboundToFormValues(vlessRow);
+    const stripped = stripClientsFromFormValues(values);
+    const settings = stripped.settings as Record<string, unknown>;
+    expect(settings.clients).toBeUndefined();
+    expect(settings.decryption).toBe('none');
+  });
+
+  it('round-trips clients back on edit save via mergeEditFormWithServer', () => {
+    const serverRow = vlessRow;
+    const stripped = stripClientsFromFormValues(rawInboundToFormValues(serverRow));
+    const merged = mergeEditFormWithServer(stripped, serverRow);
+    const clients = (merged.settings as { clients: unknown[] }).clients;
+    expect(clients).toHaveLength(1);
+    expect((clients[0] as { email?: string }).email).toBe('alice@example.test');
   });
 });
 

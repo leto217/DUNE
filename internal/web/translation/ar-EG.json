@@ -415,7 +415,8 @@
         "sniffingHelp": "غلاف كتلة sniffing في Xray:",
         "stream": "Stream",
         "streamHelp": "غلاف كتلة stream في Xray:",
-        "jsonErrorPrefix": "JSON متقدم"
+        "jsonErrorPrefix": "JSON متقدم",
+        "clientsOmittedNotice": "يتم إدارة {{count}} عميلاً في صفحة العملاء ولا يظهرون في هذا المحرر. يتم الاحتفاظ بهم عند الحفظ."
       },
       "telegramDesc": "ادخل ID شات Telegram. (استخدم '/id' في البوت) أو ({'@'}userinfobot)",
       "subscriptionDesc": "عشان تلاقي رابط الاشتراك، ادخل على 'التفاصيل'. وكمان ممكن تستخدم نفس الاسم لعدة عملاء.",
@@ -831,6 +832,38 @@
         "bulkAdjusted": "تم تعديل {count} عميل",
         "bulkAdjustedMixed": "{ok} تم تعديلهم، {skipped} تم تخطيهم",
         "delDepleted": "تم حذف {count} عميل منتهٍ"
+      },
+      "fupTitle": "سياسة الاستخدام العادل",
+      "fupDesc": "حدود اختيارية يومية وأسبوعية وشهرية للخطط غير المحدودة. 0 = معطّل لهذه الفترة.",
+      "fupDailyLimit": "الحد اليومي",
+      "fupWeeklyLimit": "الحد الأسبوعي",
+      "fupMonthlyLimit": "الحد الشهري",
+      "fupLimitDesc": "الحد بالجيجابايت لهذه الفترة. 0 = معطّل.",
+      "fupResetTime": "وقت إعادة التعيين اليومي",
+      "fupResetTimeDesc": "الوقت المحلي للخادم لإعادة تعيين الفترة اليومية (HH:MM). يُستخدم أيضاً للأسبوعي/الشهري.",
+      "fupWeeklyResetDay": "يوم إعادة التعيين الأسبوعي",
+      "fupMonthlyResetDay": "يوم إعادة التعيين الشهري",
+      "fupAction": "الإجراء عند تجاوز أي حد",
+      "fupActionNotify": "إشعار المسؤول فقط",
+      "fupActionDisableHours": "تعطيل العميل لمدة X ساعة",
+      "fupActionDisableUntilReset": "تعطيل حتى إعادة تعيين الفترة التالية",
+      "fupDisableHours": "مدة التعطيل (ساعات)",
+      "fupDailyShort": "اليوم",
+      "fupWeeklyShort": "هذا الأسبوع",
+      "fupMonthlyShort": "هذا الشهر",
+      "fupStatus": {
+        "normal": "طبيعي",
+        "exceeded": "تم التجاوز",
+        "disabled": "معطّل حتى إعادة التعيين"
+      },
+      "weekday": {
+        "sun": "الأحد",
+        "mon": "الاثنين",
+        "tue": "الثلاثاء",
+        "wed": "الأربعاء",
+        "thu": "الخميس",
+        "fri": "الجمعة",
+        "sat": "السبت"
       }
     },
     "groups": {
@@ -1910,7 +1943,9 @@
       "eventNodeUp": "العقدة {{ .Name }} متصلة",
       "eventCPUHigh": "ارتفاع استخدام المعالج",
       "eventCPUHighDetail": "المعالج: {{ .Detail }}",
-      "eventLoginFallback": "فشل تسجيل الدخول من {{ .Source }}"
+      "eventLoginFallback": "فشل تسجيل الدخول من {{ .Source }}",
+      "eventFupExceeded": "⚠️ تجاوز الاستخدام العادل للعميل {{ .Email }} ({{ .Period }}): {{ .Used }} / {{ .Limit }} — الإجراء: {{ .Action }}",
+      "eventFupExceededFallback": "⚠️ تجاوز الاستخدام العادل للعميل {{ .Email }}"
     },
     "buttons": {
       "closeKeyboard": "❌ اقفل الكيبورد",

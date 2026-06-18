@@ -415,7 +415,8 @@
         "sniffingHelp": "Xray sniffing ブロックのラッパー:",
         "stream": "Stream",
         "streamHelp": "Xray stream ブロックのラッパー:",
-        "jsonErrorPrefix": "高度な JSON"
+        "jsonErrorPrefix": "高度な JSON",
+        "clientsOmittedNotice": "{{count}} 件のクライアントは「クライアント」ページで管理され、このエディターには表示されません。保存時に保持されます。"
       },
       "telegramDesc": "TelegramチャットIDを提供してください。（ボットで'/id'コマンドを使用）または（{'@'}userinfobot）",
       "subscriptionDesc": "サブスクリプションURLを見つけるには、“詳細情報”に移動してください。また、複数のクライアントに同じ名前を使用することができます。",
@@ -831,6 +832,38 @@
         "bulkAdjusted": "{count} 件のクライアントを調整しました",
         "bulkAdjustedMixed": "{ok} 件調整、{skipped} 件スキップ",
         "delDepleted": "使い切った {count} 件のクライアントを削除しました"
+      },
+      "fupTitle": "フェアユースポリシー",
+      "fupDesc": "無制限プラン向けの任意の日次・週次・月次しきい値。0 = その期間は無効。",
+      "fupDailyLimit": "日次上限",
+      "fupWeeklyLimit": "週次上限",
+      "fupMonthlyLimit": "月次上限",
+      "fupLimitDesc": "期間ごとのしきい値（GB）。0 = 無効。",
+      "fupResetTime": "日次リセット時刻",
+      "fupResetTimeDesc": "日次期間のリセット時刻（HH:MM、サーバー現地時間）。週次/月次にも使用。",
+      "fupWeeklyResetDay": "週次リセット曜日",
+      "fupMonthlyResetDay": "月次リセット日",
+      "fupAction": "いずれかの上限超過時の動作",
+      "fupActionNotify": "管理者に通知のみ",
+      "fupActionDisableHours": "クライアントを X 時間無効化",
+      "fupActionDisableUntilReset": "次の期間リセットまで無効化",
+      "fupDisableHours": "無効化時間（時間）",
+      "fupDailyShort": "今日",
+      "fupWeeklyShort": "今週",
+      "fupMonthlyShort": "今月",
+      "fupStatus": {
+        "normal": "正常",
+        "exceeded": "超過",
+        "disabled": "リセットまで無効"
+      },
+      "weekday": {
+        "sun": "日曜日",
+        "mon": "月曜日",
+        "tue": "火曜日",
+        "wed": "水曜日",
+        "thu": "木曜日",
+        "fri": "金曜日",
+        "sat": "土曜日"
       }
     },
     "groups": {
@@ -1910,7 +1943,9 @@
       "eventNodeUp": "ノード {{ .Name }} が復旧しました",
       "eventCPUHigh": "CPU高負荷",
       "eventCPUHighDetail": "CPU: {{ .Detail }}",
-      "eventLoginFallback": "{{ .Source }} からのログインに失敗しました"
+      "eventLoginFallback": "{{ .Source }} からのログインに失敗しました",
+      "eventFupExceeded": "⚠️ {{ .Email }} のフェアユース超過 ({{ .Period }}): {{ .Used }} / {{ .Limit }} — 動作: {{ .Action }}",
+      "eventFupExceededFallback": "⚠️ {{ .Email }} のフェアユース超過"
     },
     "buttons": {
       "closeKeyboard": "❌ キーボードを閉じる",

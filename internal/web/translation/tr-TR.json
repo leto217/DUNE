@@ -415,7 +415,8 @@
         "sniffingHelp": "Xray sniffing bloğunun sarmalayıcısı:",
         "stream": "Stream",
         "streamHelp": "Xray stream bloğunun sarmalayıcısı:",
-        "jsonErrorPrefix": "Gelişmiş JSON"
+        "jsonErrorPrefix": "Gelişmiş JSON",
+        "clientsOmittedNotice": "{{count}} istemci İstemciler sayfasında yönetilir ve bu düzenleyicide gösterilmez. Kaydettiğinizde korunur."
       },
       "telegramDesc": "Lütfen Telegram Sohbet Kimliği (Chat ID) sağlayın. ({'@'}userinfobot'tan öğrenebilir veya botta '/id' komutunu kullanabilirsiniz.)",
       "subscriptionDesc": "Abonelik URL'nizi bulmak için 'Detaylar'a gidin. Aynı adı birden fazla kullanıcı için kullanabilirsiniz.",
@@ -831,6 +832,38 @@
         "bulkAdjusted": "{count} kullanıcı ayarlandı",
         "bulkAdjustedMixed": "{ok} ayarlandı, {skipped} atlandı",
         "delDepleted": "{count} tükenmiş kullanıcı silindi"
+      },
+      "fupTitle": "Adil kullanım politikası",
+      "fupDesc": "Sınırsız planlar için isteğe bağlı günlük, haftalık ve aylık eşikler. 0 = o dönem için kapalı.",
+      "fupDailyLimit": "Günlük limit",
+      "fupWeeklyLimit": "Haftalık limit",
+      "fupMonthlyLimit": "Aylık limit",
+      "fupLimitDesc": "Dönem için GB eşiği. 0 = kapalı.",
+      "fupResetTime": "Günlük sıfırlama saati",
+      "fupResetTimeDesc": "Günlük dönem sıfırlama saati (SS:DD, sunucu saati). Haftalık/aylık için de kullanılır.",
+      "fupWeeklyResetDay": "Haftalık sıfırlama günü",
+      "fupMonthlyResetDay": "Aylık sıfırlama günü",
+      "fupAction": "Herhangi bir limit aşıldığında",
+      "fupActionNotify": "Yalnızca yöneticiyi bilgilendir",
+      "fupActionDisableHours": "İstemciyi X saat devre dışı bırak",
+      "fupActionDisableUntilReset": "Sonraki dönem sıfırlamasına kadar devre dışı bırak",
+      "fupDisableHours": "Devre dışı süre (saat)",
+      "fupDailyShort": "Bugün",
+      "fupWeeklyShort": "Bu hafta",
+      "fupMonthlyShort": "Bu ay",
+      "fupStatus": {
+        "normal": "Normal",
+        "exceeded": "Aşıldı",
+        "disabled": "Sıfırlamaya kadar kapalı"
+      },
+      "weekday": {
+        "sun": "Pazar",
+        "mon": "Pazartesi",
+        "tue": "Salı",
+        "wed": "Çarşamba",
+        "thu": "Perşembe",
+        "fri": "Cuma",
+        "sat": "Cumartesi"
       }
     },
     "groups": {
@@ -1910,7 +1943,9 @@
       "eventNodeUp": "{{ .Name }} düğümü ÇEVRİMİÇİ",
       "eventCPUHigh": "Yüksek CPU",
       "eventCPUHighDetail": "CPU: {{ .Detail }}",
-      "eventLoginFallback": "{{ .Source }} adresinden oturum açma başarısız"
+      "eventLoginFallback": "{{ .Source }} adresinden oturum açma başarısız",
+      "eventFupExceeded": "⚠️ {{ .Email }} için adil kullanım aşıldı ({{ .Period }}): {{ .Used }} / {{ .Limit }} — eylem: {{ .Action }}",
+      "eventFupExceededFallback": "⚠️ {{ .Email }} için adil kullanım aşıldı"
     },
     "buttons": {
       "closeKeyboard": "❌ Klavyeyi Kapat",

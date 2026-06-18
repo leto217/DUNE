@@ -51,18 +51,18 @@ Build a specific release (recommended) or `latest`:
 
 ```bash
 # amd64 qcow2 (no cloud account needed)
-packer build -only='qemu.dune' -var 'dune_version=v3.3.1' -var 'dune_arch=amd64' .
+packer build -only='qemu.dune' -var 'dune_version=v1.2.0' -var 'dune_arch=amd64' .
 
 # arm64 qcow2 (run on an arm64 host for native KVM)
-packer build -only='qemu.dune' -var 'dune_version=v3.3.1' -var 'dune_arch=arm64' .
+packer build -only='qemu.dune' -var 'dune_version=v1.2.0' -var 'dune_arch=arm64' .
 
 # amd64 AWS AMI
 packer build -only='amazon-ebs.dune' \
-  -var 'dune_version=v3.3.1' -var 'dune_arch=amd64' -var 'instance_type=t3.small' -var 'region=eu-central-1' .
+  -var 'dune_version=v1.2.0' -var 'dune_arch=amd64' -var 'instance_type=t3.small' -var 'region=eu-central-1' .
 
 # arm64 AWS AMI (Graviton)
 packer build -only='amazon-ebs.dune' \
-  -var 'dune_version=v3.3.1' -var 'dune_arch=arm64' -var 'instance_type=t4g.small' -var 'region=eu-central-1' .
+  -var 'dune_version=v1.2.0' -var 'dune_arch=arm64' -var 'instance_type=t4g.small' -var 'region=eu-central-1' .
 ```
 
 Outputs (per arch):
@@ -77,7 +77,7 @@ See [`variables.pkr.hcl`](variables.pkr.hcl) for the full list.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `dune_version` | `latest` | Release tag to install, e.g. `v3.3.1` |
+| `dune_version` | `latest` | Release tag to install, e.g. `v1.2.0` |
 | `dune_arch` | `amd64` | `amd64` or `arm64` (derives the base AMI / cloud image) |
 | `region` | `eu-central-1` | AWS region (amazon-ebs) |
 | `instance_type` | `t3.small` | EC2 build instance — must match the arch (`t4g.small` for arm64) |

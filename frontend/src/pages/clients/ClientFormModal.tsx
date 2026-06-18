@@ -105,6 +105,14 @@ interface FormState {
   delayedStart: boolean;
   delayedDays: number;
   reset: number;
+  fupDailyLimitGB: number;
+  fupWeeklyLimitGB: number;
+  fupMonthlyLimitGB: number;
+  fupAction: string;
+  fupDisableHours: number;
+  fupResetTime: string;
+  fupWeeklyResetDay: number;
+  fupMonthlyResetDay: number;
   limitIp: number;
   tgId: number;
   group: string;
@@ -129,6 +137,14 @@ function emptyForm(): FormState {
     delayedStart: false,
     delayedDays: 0,
     reset: 0,
+    fupDailyLimitGB: 0,
+    fupWeeklyLimitGB: 0,
+    fupMonthlyLimitGB: 0,
+    fupAction: 'notify',
+    fupDisableHours: 1,
+    fupResetTime: '00:00',
+    fupWeeklyResetDay: 1,
+    fupMonthlyResetDay: 1,
     limitIp: 0,
     tgId: 0,
     group: '',
@@ -226,6 +242,14 @@ export default function ClientFormModal({
         reverseTag: client.reverse?.tag || '',
         totalGB: bytesToGB(client.totalGB || 0),
         reset: Number(client.reset) || 0,
+        fupDailyLimitGB: bytesToGB(client.fupDailyLimitGB || 0),
+        fupWeeklyLimitGB: bytesToGB(client.fupWeeklyLimitGB || 0),
+        fupMonthlyLimitGB: bytesToGB(client.fupMonthlyLimitGB || 0),
+        fupAction: client.fupAction || 'notify',
+        fupDisableHours: Number(client.fupDisableHours) || 1,
+        fupResetTime: client.fupResetTime || '00:00',
+        fupWeeklyResetDay: Number(client.fupWeeklyResetDay ?? 1),
+        fupMonthlyResetDay: Number(client.fupMonthlyResetDay ?? 1),
         limitIp: client.limitIp || 0,
         tgId: Number(client.tgId) || 0,
         group: client.group || '',
@@ -412,6 +436,14 @@ export default function ClientFormModal({
       delayedStart: form.delayedStart,
       delayedDays: form.delayedDays,
       reset: form.reset,
+      fupDailyLimitGB: form.fupDailyLimitGB,
+      fupWeeklyLimitGB: form.fupWeeklyLimitGB,
+      fupMonthlyLimitGB: form.fupMonthlyLimitGB,
+      fupAction: form.fupAction,
+      fupDisableHours: form.fupDisableHours,
+      fupResetTime: form.fupResetTime,
+      fupWeeklyResetDay: form.fupWeeklyResetDay,
+      fupMonthlyResetDay: form.fupMonthlyResetDay,
       limitIp: form.limitIp,
       tgId: form.tgId,
       group: form.group,
@@ -438,6 +470,14 @@ export default function ClientFormModal({
       totalGB: gbToBytes(form.totalGB),
       expiryTime,
       reset: Number(form.reset) || 0,
+      fupDailyLimitGB: gbToBytes(form.fupDailyLimitGB),
+      fupWeeklyLimitGB: gbToBytes(form.fupWeeklyLimitGB),
+      fupMonthlyLimitGB: gbToBytes(form.fupMonthlyLimitGB),
+      fupAction: form.fupAction || 'notify',
+      fupDisableHours: Number(form.fupDisableHours) || 0,
+      fupResetTime: form.fupResetTime || '00:00',
+      fupWeeklyResetDay: Number(form.fupWeeklyResetDay) || 1,
+      fupMonthlyResetDay: Number(form.fupMonthlyResetDay) || 1,
       limitIp: Number(form.limitIp) || 0,
       tgId: Number(form.tgId) || 0,
       group: form.group,
@@ -602,6 +642,97 @@ export default function ClientFormModal({
                             onChange={(v) => update('reset', Number(v) || 0)} />
                         </Form.Item>
                       </Col>
+                    </Row>
+
+                    <Typography.Title level={5} style={{ marginTop: 8, marginBottom: 12 }}>
+                      {t('pages.clients.fupTitle')}
+                    </Typography.Title>
+                    <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
+                      {t('pages.clients.fupDesc')}
+                    </Typography.Paragraph>
+
+                    <Row gutter={16}>
+                      <Col xs={24} md={8}>
+                        <Form.Item label={t('pages.clients.fupDailyLimit')} tooltip={t('pages.clients.fupLimitDesc')}>
+                          <InputNumber value={form.fupDailyLimitGB} min={0} step={1} style={{ width: '100%' }}
+                            addonAfter="GB"
+                            onChange={(v) => update('fupDailyLimitGB', Number(v) || 0)} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Form.Item label={t('pages.clients.fupWeeklyLimit')} tooltip={t('pages.clients.fupLimitDesc')}>
+                          <InputNumber value={form.fupWeeklyLimitGB} min={0} step={1} style={{ width: '100%' }}
+                            addonAfter="GB"
+                            onChange={(v) => update('fupWeeklyLimitGB', Number(v) || 0)} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Form.Item label={t('pages.clients.fupMonthlyLimit')} tooltip={t('pages.clients.fupLimitDesc')}>
+                          <InputNumber value={form.fupMonthlyLimitGB} min={0} step={1} style={{ width: '100%' }}
+                            addonAfter="GB"
+                            onChange={(v) => update('fupMonthlyLimitGB', Number(v) || 0)} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+
+                    <Row gutter={16}>
+                      <Col xs={24} md={8}>
+                        <Form.Item label={t('pages.clients.fupResetTime')} tooltip={t('pages.clients.fupResetTimeDesc')}>
+                          <Input
+                            value={form.fupResetTime}
+                            placeholder="00:00"
+                            onChange={(e) => update('fupResetTime', e.target.value)}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Form.Item label={t('pages.clients.fupWeeklyResetDay')}>
+                          <Select
+                            value={form.fupWeeklyResetDay}
+                            onChange={(v) => update('fupWeeklyResetDay', Number(v))}
+                            options={[
+                              { value: 0, label: t('pages.clients.weekday.sun') },
+                              { value: 1, label: t('pages.clients.weekday.mon') },
+                              { value: 2, label: t('pages.clients.weekday.tue') },
+                              { value: 3, label: t('pages.clients.weekday.wed') },
+                              { value: 4, label: t('pages.clients.weekday.thu') },
+                              { value: 5, label: t('pages.clients.weekday.fri') },
+                              { value: 6, label: t('pages.clients.weekday.sat') },
+                            ]}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Form.Item label={t('pages.clients.fupMonthlyResetDay')}>
+                          <InputNumber value={form.fupMonthlyResetDay} min={1} max={28} style={{ width: '100%' }}
+                            onChange={(v) => update('fupMonthlyResetDay', Number(v) || 1)} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+
+                    <Row gutter={16}>
+                      <Col xs={24} md={12}>
+                        <Form.Item label={t('pages.clients.fupAction')}>
+                          <Select
+                            value={form.fupAction}
+                            onChange={(v) => update('fupAction', v)}
+                            options={[
+                              { value: 'notify', label: t('pages.clients.fupActionNotify') },
+                              { value: 'disable_hours', label: t('pages.clients.fupActionDisableHours') },
+                              { value: 'disable_until_reset', label: t('pages.clients.fupActionDisableUntilReset') },
+                            ]}
+                          />
+                        </Form.Item>
+                      </Col>
+                      {form.fupAction === 'disable_hours' && (
+                        <Col xs={24} md={12}>
+                          <Form.Item label={t('pages.clients.fupDisableHours')}>
+                            <InputNumber value={form.fupDisableHours} min={1} style={{ width: '100%' }}
+                              addonAfter={t('hours')}
+                              onChange={(v) => update('fupDisableHours', Number(v) || 1)} />
+                          </Form.Item>
+                        </Col>
+                      )}
                     </Row>
 
                     <Row gutter={16}>

@@ -9,7 +9,7 @@
 # dune-firstboot.service are enabled but NOT started here.
 #
 # Inputs (from Packer environment_vars):
-#   DUNE_VERSION  release tag (e.g. v3.3.1) or 'latest'
+#   DUNE_VERSION  release tag (e.g. v1.2.0) or 'latest'
 #   DUNE_ARCH     amd64 (default) or arm64
 set -euo pipefail
 

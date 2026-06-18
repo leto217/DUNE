@@ -29,7 +29,7 @@ Derivado de 3X-UI con foco en eficiencia, DUNE reduce tareas en segundo plano, o
 - **Entradas multiprotocolo** — VLESS, VMess, Trojan, Shadowsocks, WireGuard, Hysteria2, HTTP, SOCKS (Mixed), Dokodemo-door / Tunnel y TUN.
 - **Transportes y seguridad modernos** — TCP (Raw), mKCP, WebSocket, gRPC, HTTPUpgrade y XHTTP, protegidos con TLS, XTLS y REALITY.
 - **Fallbacks** — sirve varios protocolos en un solo puerto (p. ej. VLESS y Trojan en el 443) usando la función de fallback de Xray.
-- **Gestión por cliente** — cuotas de tráfico, fechas de caducidad, límites de IP, estado en línea en tiempo real y enlaces de compartición, códigos QR y suscripciones con un solo clic.
+- **Gestión por cliente** — cuotas de tráfico, fechas de caducidad, límites de IP, **política de uso justo (diaria/semanal/mensual)**, estado en línea en tiempo real y enlaces de compartición, códigos QR y suscripciones con un solo clic.
 - **Estadísticas de tráfico** — por entrada, por cliente y por salida, con controles de reinicio.
 - **Soporte multinodo** — gestiona y escala a través de varios servidores desde un único panel.
 - **Salida y enrutamiento** — WARP, NordVPN, reglas de enrutamiento personalizadas, balanceadores de carga y encadenamiento de proxy de salida.

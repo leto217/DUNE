@@ -101,7 +101,10 @@ func (s *ClientService) BulkResetTraffic(inboundSvc *InboundService, emails []st
 				}
 				affected += int(res.RowsAffected)
 			}
-			return clearGlobalTraffic(tx, cleanEmails...)
+			if err := clearGlobalTraffic(tx, cleanEmails...); err != nil {
+				return err
+			}
+			return resetFupBaselines(tx, cleanEmails)
 		})
 	})
 	if err != nil {

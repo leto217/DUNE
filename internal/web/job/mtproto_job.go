@@ -1,7 +1,6 @@
 package job
 
 import (
-	"github.com/gary/dune/internal/database/model"
 	"github.com/gary/dune/internal/logger"
 	"github.com/gary/dune/internal/mtproto"
 	"github.com/gary/dune/internal/web/service"
@@ -24,7 +23,7 @@ func NewMtprotoJob() *MtprotoJob {
 // Run reconciles desired mtproto inbounds with running mtg processes and
 // records traffic deltas.
 func (j *MtprotoJob) Run() {
-	inbounds, err := j.inboundService.GetAllInbounds()
+	inbounds, err := j.inboundService.GetEnabledLocalMtprotoInbounds()
 	if err != nil {
 		logger.Warning("mtproto job: get inbounds failed:", err)
 		return
@@ -33,9 +32,6 @@ func (j *MtprotoJob) Run() {
 	var desired []mtproto.Instance
 	routedTags := make(map[string]bool)
 	for _, ib := range inbounds {
-		if ib.Protocol != model.MTProto || !ib.Enable || ib.NodeID != nil {
-			continue
-		}
 		if inst, ok := mtproto.InstanceFromInbound(ib); ok {
 			desired = append(desired, inst)
 			if inst.RouteThroughXray {

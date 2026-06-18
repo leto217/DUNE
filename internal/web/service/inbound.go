@@ -359,6 +359,23 @@ func (s *InboundService) GetEnabledLocalInbounds() ([]*model.Inbound, error) {
 	return inbounds, nil
 }
 
+// GetEnabledLocalMtprotoInbounds returns enabled mtproto inbounds hosted on
+// this panel (not synced from a node). Skips ClientStats preload and settings
+// JSON parsing — MtprotoJob only needs the fields consumed by
+// mtproto.InstanceFromInbound.
+func (s *InboundService) GetEnabledLocalMtprotoInbounds() ([]*model.Inbound, error) {
+	db := database.GetDB()
+	var inbounds []*model.Inbound
+	err := db.Model(model.Inbound{}).
+		Select("id", "tag", "listen", "port", "protocol", "settings", "enable", "node_id").
+		Where("enable = ? AND node_id IS NULL AND protocol = ?", true, model.MTProto).
+		Find(&inbounds).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+	return inbounds, nil
+}
+
 // GetAllInbounds retrieves all inbounds with client stats.
 func (s *InboundService) GetAllInbounds() ([]*model.Inbound, error) {
 	db := database.GetDB()

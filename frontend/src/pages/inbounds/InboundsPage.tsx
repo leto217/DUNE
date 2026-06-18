@@ -496,7 +496,7 @@ export default function InboundsPage() {
     // Actions that touch per-client secrets (uuid, password, flow, ...) need
     // the full payload that the slim list view does not ship. Hydrate first
     // and then operate on the rehydrated record.
-    const hydratingKeys: RowAction[] = ['edit', 'showInfo', 'qrcode', 'export', 'subs', 'clipboard', 'clone', 'attachClients', 'addToGroup'];
+    const hydratingKeys: RowAction[] = ['showInfo', 'qrcode', 'export', 'subs', 'clipboard', 'clone', 'attachClients', 'addToGroup'];
     let target = dbInbound;
     if (hydratingKeys.includes(key)) {
       const hydrated = await hydrateInbound(dbInbound.id);

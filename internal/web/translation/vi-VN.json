@@ -415,7 +415,8 @@
         "sniffingHelp": "Bao đóng khối sniffing của Xray:",
         "stream": "Stream",
         "streamHelp": "Bao đóng khối stream của Xray:",
-        "jsonErrorPrefix": "JSON nâng cao"
+        "jsonErrorPrefix": "JSON nâng cao",
+        "clientsOmittedNotice": "{{count}} client được quản lý trên trang Clients và không hiển thị trong trình chỉnh sửa này. Chúng được giữ nguyên khi bạn lưu."
       },
       "telegramDesc": "Vui lòng cung cấp ID Trò chuyện Telegram. (sử dụng lệnh '/id' trong bot) hoặc ({'@'}userinfobot)",
       "subscriptionDesc": "Bạn có thể tìm liên kết gói đăng ký của mình trong Chi tiết, cũng như bạn có thể sử dụng cùng tên cho nhiều cấu hình khác nhau",
@@ -831,6 +832,38 @@
         "bulkAdjusted": "Đã điều chỉnh {count} khách hàng",
         "bulkAdjustedMixed": "Đã điều chỉnh {ok}, bỏ qua {skipped}",
         "delDepleted": "Đã xóa {count} khách hàng hết hạn mức"
+      },
+      "fupTitle": "Chính sách sử dụng công bằng",
+      "fupDesc": "Ngưỡng tùy chọn theo ngày/tuần/tháng cho gói không giới hạn. 0 = tắt cho kỳ đó.",
+      "fupDailyLimit": "Giới hạn ngày",
+      "fupWeeklyLimit": "Giới hạn tuần",
+      "fupMonthlyLimit": "Giới hạn tháng",
+      "fupLimitDesc": "Ngưỡng GB cho kỳ. 0 = tắt.",
+      "fupResetTime": "Giờ reset ngày",
+      "fupResetTimeDesc": "Giờ máy chủ reset kỳ ngày (HH:MM). Cũng dùng cho reset tuần/tháng.",
+      "fupWeeklyResetDay": "Ngày reset tuần",
+      "fupMonthlyResetDay": "Ngày reset tháng",
+      "fupAction": "Hành động khi vượt bất kỳ giới hạn",
+      "fupActionNotify": "Chỉ thông báo quản trị",
+      "fupActionDisableHours": "Vô hiệu client trong X giờ",
+      "fupActionDisableUntilReset": "Vô hiệu đến reset kỳ tiếp theo",
+      "fupDisableHours": "Thời gian vô hiệu (giờ)",
+      "fupDailyShort": "Hôm nay",
+      "fupWeeklyShort": "Tuần này",
+      "fupMonthlyShort": "Tháng này",
+      "fupStatus": {
+        "normal": "Bình thường",
+        "exceeded": "Vượt ngưỡng",
+        "disabled": "Vô hiệu đến reset"
+      },
+      "weekday": {
+        "sun": "Chủ nhật",
+        "mon": "Thứ hai",
+        "tue": "Thứ ba",
+        "wed": "Thứ tư",
+        "thu": "Thứ năm",
+        "fri": "Thứ sáu",
+        "sat": "Thứ bảy"
       }
     },
     "groups": {
@@ -1910,7 +1943,9 @@
       "eventNodeUp": "Node {{ .Name }} đã HOẠT ĐỘNG",
       "eventCPUHigh": "CPU cao",
       "eventCPUHighDetail": "CPU: {{ .Detail }}",
-      "eventLoginFallback": "Đăng nhập thất bại từ {{ .Source }}"
+      "eventLoginFallback": "Đăng nhập thất bại từ {{ .Source }}",
+      "eventFupExceeded": "⚠️ Vượt ngưỡng sử dụng công bằng cho {{ .Email }} ({{ .Period }}): {{ .Used }} / {{ .Limit }} — hành động: {{ .Action }}",
+      "eventFupExceededFallback": "⚠️ Vượt ngưỡng sử dụng công bằng cho {{ .Email }}"
     },
     "buttons": {
       "closeKeyboard": "❌ Đóng Bàn Phím",

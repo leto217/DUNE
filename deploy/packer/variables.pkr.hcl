@@ -3,7 +3,7 @@
 
 variable "dune_version" {
   type        = string
-  description = "dune release tag to install, e.g. v3.3.1. 'latest' resolves the newest GitHub release at build time."
+  description = "dune release tag to install, e.g. v1.2.0. 'latest' resolves the newest GitHub release at build time."
   default     = "latest"
 }
 

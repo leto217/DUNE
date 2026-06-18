@@ -22,6 +22,9 @@ const (
 
 	// Security
 	EventLoginAttempt EventType = "login.attempt"
+
+	// Fair usage policy
+	EventFUPExceeded EventType = "client.fup_exceeded"
 )
 
 // Event is the unit of information flowing through the bus.
@@ -61,4 +64,12 @@ type LoginEventData struct {
 type SystemMetricData struct {
 	Percent   float64 // current usage percentage
 	Threshold int     // configured threshold
+}
+
+// FUPExceededData carries fair-usage threshold breach details.
+type FUPExceededData struct {
+	Period string
+	Used   int64
+	Limit  int64
+	Action string
 }

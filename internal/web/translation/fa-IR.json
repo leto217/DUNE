@@ -415,7 +415,8 @@
         "sniffingHelp": "ساختار بلوک sniffing در Xray:",
         "stream": "Stream",
         "streamHelp": "ساختار بلوک stream در Xray:",
-        "jsonErrorPrefix": "JSON پیشرفته"
+        "jsonErrorPrefix": "JSON پیشرفته",
+        "clientsOmittedNotice": "{{count}} کلاینت در صفحهٔ کلاینت‌ها مدیریت می‌شوند و در این ویرایشگر نمایش داده نمی‌شوند. هنگام ذخیره حفظ می‌شوند."
       },
       "telegramDesc": "لطفا شناسه گفتگوی تلگرام را وارد کنید. (از دستور '/id' در ربات استفاده کنید) یا ({'@'}userinfobot)",
       "subscriptionDesc": "شما می‌توانید لینک سابسکربپشن خودرا در 'جزئیات' پیدا کنید، همچنین می‌توانید از همین نام برای چندین کاربر استفاده‌کنید",
@@ -831,6 +832,38 @@
         "bulkAdjusted": "{count} کلاینت تنظیم شد",
         "bulkAdjustedMixed": "{ok} تنظیم، {skipped} رد شد",
         "delDepleted": "{count} کلاینت اتمام‌یافته حذف شد"
+      },
+      "fupTitle": "سیاست استفاده منصفانه",
+      "fupDesc": "آستانه‌های اختیاری روزانه، هفتگی و ماهانه برای پلن‌های نامحدود. ۰ = غیرفعال برای آن دوره.",
+      "fupDailyLimit": "سقف روزانه",
+      "fupWeeklyLimit": "سقف هفتگی",
+      "fupMonthlyLimit": "سقف ماهانه",
+      "fupLimitDesc": "آستانه به گیگابایت برای این دوره. ۰ = غیرفعال.",
+      "fupResetTime": "زمان بازنشانی روزانه",
+      "fupResetTimeDesc": "زمان محلی سرور برای بازنشانی دوره روزانه (HH:MM). برای بازنشانی هفتگی/ماهانه نیز استفاده می‌شود.",
+      "fupWeeklyResetDay": "روز بازنشانی هفتگی",
+      "fupMonthlyResetDay": "روز بازنشانی ماهانه",
+      "fupAction": "اقدام پس از عبور از هر سقف",
+      "fupActionNotify": "فقط اطلاع به مدیر",
+      "fupActionDisableHours": "غیرفعال کردن کلاینت به مدت X ساعت",
+      "fupActionDisableUntilReset": "غیرفعال تا بازنشانی دوره بعد",
+      "fupDisableHours": "مدت غیرفعال‌سازی (ساعت)",
+      "fupDailyShort": "امروز",
+      "fupWeeklyShort": "این هفته",
+      "fupMonthlyShort": "این ماه",
+      "fupStatus": {
+        "normal": "عادی",
+        "exceeded": "عبور از حد",
+        "disabled": "غیرفعال تا بازنشانی"
+      },
+      "weekday": {
+        "sun": "یکشنبه",
+        "mon": "دوشنبه",
+        "tue": "سه‌شنبه",
+        "wed": "چهارشنبه",
+        "thu": "پنجشنبه",
+        "fri": "جمعه",
+        "sat": "شنبه"
       }
     },
     "groups": {
@@ -1910,7 +1943,9 @@
       "eventNodeUp": "نود {{ .Name }} وصل است",
       "eventCPUHigh": "بالا بودن CPU",
       "eventCPUHighDetail": "CPU: {{ .Detail }}",
-      "eventLoginFallback": "ورود ناموفق از {{ .Source }}"
+      "eventLoginFallback": "ورود ناموفق از {{ .Source }}",
+      "eventFupExceeded": "⚠️ عبور از سقف استفاده منصفانه برای {{ .Email }} ({{ .Period }}): {{ .Used }} / {{ .Limit }} — اقدام: {{ .Action }}",
+      "eventFupExceededFallback": "⚠️ عبور از سقف استفاده منصفانه برای {{ .Email }}"
     },
     "buttons": {
       "closeKeyboard": "❌ بستن کیبورد",

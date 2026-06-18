@@ -422,7 +422,8 @@
         "sniffingHelp": "Xray sniffing block wrapper:",
         "stream": "Stream",
         "streamHelp": "Xray stream block wrapper:",
-        "jsonErrorPrefix": "Advanced JSON"
+        "jsonErrorPrefix": "Advanced JSON",
+        "clientsOmittedNotice": "{{count}} clients are managed on the Clients page and omitted from this editor. They are preserved when you save."
       },
       "telegramDesc": "Please provide Telegram Chat ID. (use '/id' command in the bot) or ({'@'}userinfobot)",
       "subscriptionDesc": "To find your subscription URL, navigate to the 'Details'. Additionally, you can use the same name for several clients.",
@@ -734,6 +735,38 @@
       "addClients": "Add Clients",
       "limitIp": "IP Limit",
       "limitIpDesc": "Maximum simultaneous IPs. 0 = unlimited.",
+      "fupTitle": "Fair Usage Policy",
+      "fupDesc": "Optional daily, weekly, and monthly usage thresholds for unlimited plans. 0 = disabled for that period.",
+      "fupDailyLimit": "Daily limit",
+      "fupWeeklyLimit": "Weekly limit",
+      "fupMonthlyLimit": "Monthly limit",
+      "fupLimitDesc": "Threshold in GB for this period. 0 = disabled.",
+      "fupResetTime": "Daily reset time",
+      "fupResetTimeDesc": "Server-local time when the daily period resets (HH:MM). Also used as the clock for weekly/monthly resets.",
+      "fupWeeklyResetDay": "Weekly reset day",
+      "fupMonthlyResetDay": "Monthly reset day",
+      "fupAction": "Action after exceeding any limit",
+      "fupActionNotify": "Notify admin only",
+      "fupActionDisableHours": "Disable client for X hours",
+      "fupActionDisableUntilReset": "Disable until next period reset",
+      "fupDisableHours": "Disable duration (hours)",
+      "fupDailyShort": "Today",
+      "fupWeeklyShort": "This week",
+      "fupMonthlyShort": "This month",
+      "fupStatus": {
+        "normal": "Normal",
+        "exceeded": "Exceeded",
+        "disabled": "Disabled until reset"
+      },
+      "weekday": {
+        "sun": "Sunday",
+        "mon": "Monday",
+        "tue": "Tuesday",
+        "wed": "Wednesday",
+        "thu": "Thursday",
+        "fri": "Friday",
+        "sat": "Saturday"
+      },
       "password": "Password",
       "subId": "Subscription ID",
       "online": "Online",
@@ -1936,7 +1969,9 @@
       "eventNodeUp": "Node {{ .Name }} is UP",
       "eventCPUHigh": "CPU high",
       "eventCPUHighDetail": "CPU: {{ .Detail }}",
-      "eventLoginFallback": "Login failed from {{ .Source }}"
+      "eventLoginFallback": "Login failed from {{ .Source }}",
+      "eventFupExceeded": "⚠️ Fair usage exceeded for {{ .Email }} ({{ .Period }}): {{ .Used }} / {{ .Limit }} — action: {{ .Action }}",
+      "eventFupExceededFallback": "⚠️ Fair usage exceeded for {{ .Email }}"
     },
     "buttons": {
       "closeKeyboard": "❌ Close Keyboard",

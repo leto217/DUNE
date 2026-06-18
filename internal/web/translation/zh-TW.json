@@ -415,7 +415,8 @@
         "sniffingHelp": "Xray sniffing 區塊包裝：",
         "stream": "Stream",
         "streamHelp": "Xray stream 區塊包裝：",
-        "jsonErrorPrefix": "進階 JSON"
+        "jsonErrorPrefix": "進階 JSON",
+        "clientsOmittedNotice": "共 {{count}} 個客戶端在「客戶端」頁面管理，已從此編輯器中省略。儲存時會保留它們。"
       },
       "telegramDesc": "請提供Telegram聊天ID。（在機器人中使用'/id'命令）或（{'@'}userinfobot",
       "subscriptionDesc": "要找到你的訂閱 URL，請導航到“詳細資訊”。此外，你可以為多個客戶端使用相同的名稱。",
@@ -831,6 +832,38 @@
         "bulkAdjusted": "已調整 {count} 個客戶端",
         "bulkAdjustedMixed": "已調整 {ok} 個，跳過 {skipped} 個",
         "delDepleted": "已刪除 {count} 個已耗盡的客戶端"
+      },
+      "fupTitle": "公平使用政策",
+      "fupDesc": "為不限總量方案設定可選的每日、每週、每月用量門檻。0 表示該週期不啟用。",
+      "fupDailyLimit": "每日限額",
+      "fupWeeklyLimit": "每週限額",
+      "fupMonthlyLimit": "每月限額",
+      "fupLimitDesc": "該週期的門檻（GB）。0 = 不啟用。",
+      "fupResetTime": "每日重設時間",
+      "fupResetTimeDesc": "伺服器本地時間，每日週期重設時刻（HH:MM）。亦用於週/月重設。",
+      "fupWeeklyResetDay": "每週重設日",
+      "fupMonthlyResetDay": "每月重設日",
+      "fupAction": "超出任一限額後的動作",
+      "fupActionNotify": "僅通知管理員",
+      "fupActionDisableHours": "停用客戶端 X 小時",
+      "fupActionDisableUntilReset": "停用至下一週期重設",
+      "fupDisableHours": "停用時長（小時）",
+      "fupDailyShort": "今日",
+      "fupWeeklyShort": "本週",
+      "fupMonthlyShort": "本月",
+      "fupStatus": {
+        "normal": "正常",
+        "exceeded": "已超出",
+        "disabled": "已停用至重設"
+      },
+      "weekday": {
+        "sun": "星期日",
+        "mon": "星期一",
+        "tue": "星期二",
+        "wed": "星期三",
+        "thu": "星期四",
+        "fri": "星期五",
+        "sat": "星期六"
       }
     },
     "groups": {
@@ -1910,7 +1943,9 @@
       "eventNodeUp": "節點 {{ .Name }} 已上線",
       "eventCPUHigh": "CPU 偏高",
       "eventCPUHighDetail": "CPU：{{ .Detail }}",
-      "eventLoginFallback": "來自 {{ .Source }} 的登入失敗"
+      "eventLoginFallback": "來自 {{ .Source }} 的登入失敗",
+      "eventFupExceeded": "⚠️ 用戶端 {{ .Email }} 超出公平使用限額 ({{ .Period }})：{{ .Used }} / {{ .Limit }} — 動作：{{ .Action }}",
+      "eventFupExceededFallback": "⚠️ 用戶端 {{ .Email }} 超出公平使用限額"
     },
     "buttons": {
       "closeKeyboard": "❌ 關閉鍵盤",
